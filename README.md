@@ -159,6 +159,8 @@ BSD 2-Clause, see `LICENSE`.
   a CodeQL analysis of the TypeScript. A green badge says those checks passed on `main`. It is
   not a guarantee that the mod is secure: nobody has audited it, and the checks do not judge
   what a project's own `progress-check` scripts do.
+- The workflow actions are pinned to full commit SHAs (the version stands in a comment
+  beside each); update a pin only after reading what changed upstream.
 
 - Progress-check scripts run unattended, every 15 minutes, with the user's own credentials
   (ssh keys included). The "tracked by git and identical to HEAD" gate is the only guardrail:
