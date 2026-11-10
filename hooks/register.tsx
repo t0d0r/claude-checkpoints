@@ -784,6 +784,10 @@ export const register: Register = on => {
       await update($, toggledPaths, () => [])
       await writeStatus($, await $.session.cwd(), statusLine(s.trackers, s.checkedAt, next, style))
     }
+    // One rule above every tracker title, folded or open, as wide as the pane's body (so it
+    // is not cut with an ellipsis); 80 where the surface gives no width.
+    const columns = Math.max(10, Math.min(400, Math.floor(Number((e as { props?: { bodyColumns?: number } }).props?.bodyColumns) || 80)))
+    const rule = <Text dimColor wrap="truncate-end">{g.rule.repeat(columns)}</Text>
     const pinButton = (t: Tracker) => (
       <Button key={`p:${t.path}`} plain dimColor={t.path !== pin} onPress={() => void setPin(t.path)}>
         {t.path === pin ? g.pinOn : g.pinOff}
@@ -893,7 +897,9 @@ export const register: Register = on => {
           </Box>
         )}
         {ordered.map(t => isBrief(t) ? (
-          <Box key={`b:${t.path}`} flexDirection="row">
+          <Box key={`b:${t.path}`} flexDirection="column">
+          {rule}
+          <Box flexDirection="row">
             {pinButton(t)}
             <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
               <Text bold color={t.isClosed ? 'inactive' : 'suggestion'}>{`${g.folded}${t.name}${t.isClosed ? ' (closed)' : ''}`}</Text>
@@ -901,10 +907,10 @@ export const register: Register = on => {
               <Text dimColor>{summaryTail(t, style) !== '' ? `${g.sep}${summaryTail(t, style)}` : ''}</Text>
             </Button>
           </Box>
+          </Box>
         ) : (
-          <Box key={`f:${t.path}`} flexDirection="column" marginTop={1}>
-            {/* A rule above an opened tracker: where one ends and the next begins. */}
-            <Text dimColor wrap="truncate-end">{g.rule.repeat(200)}</Text>
+          <Box key={`f:${t.path}`} flexDirection="column">
+            {rule}
             <Box flexDirection="row">
               {pinButton(t)}
               <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>

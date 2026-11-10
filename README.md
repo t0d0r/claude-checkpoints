@@ -58,7 +58,8 @@ Read the incoming diff before the pull: this code runs in every project.
 - Go to a waiting row: a click (or Enter) on a row of the "Waiting on you" block opens its
   tracker and track, opens the row and moves the pane and the focus to it. The block starts
   folded while every tracker is a title line; its heading carries the counts.
-- Tracker titles stand out: bold and coloured, an opened tracker in capitals under a rule.
+- Tracker titles stand out: bold and coloured, an opened tracker in capitals; a rule as wide
+  as the pane stands above every title, folded or open.
 - Overview first: without a pin the pane opens as one title line per tracker
   (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
   to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
