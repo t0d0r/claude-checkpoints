@@ -10,29 +10,33 @@ A project without a tracker sees nothing: no cache folder, no status line.
 
 ## Install
 
-One clone on the machine, registered as a marketplace folder, user scope. Every project then
-reads the mod from that one folder.
+From the prompt of a terminal session:
 
 ```
-git clone <repository url> ~/work/AI/claude-mods/checkpoints
-claude plugin marketplace add ~/work/AI/claude-mods/checkpoints
-claude plugin install checkpoints --marketplace ~/work/AI/claude-mods/checkpoints
+/plugin install checkpoints --marketplace t0d0r/claude-checkpoints
 ```
 
-Or, from the prompt of a terminal session, straight from a repository:
+From a shell:
 
 ```
-/plugin install checkpoints --marketplace <owner>/<repo>
+claude plugin install checkpoints --marketplace t0d0r/claude-checkpoints
 ```
 
-## Update
+Answer `y` to add the marketplace and pick the user scope: the mod then loads in every project.
+
+### One clone for every project
+
+To change the mod yourself, or to control when updates arrive, install it from a clone. The
+mod is then read from that folder, not from a copy:
 
 ```
-git -C ~/work/AI/claude-mods/checkpoints pull --ff-only
+git clone https://github.com/t0d0r/claude-checkpoints.git <clone>
+claude plugin install checkpoints --marketplace <clone>
 ```
 
-then `/reload-plugins` in sessions that are already open; new sessions load the new code.
-Read the incoming diff before the pull: this code runs in every project.
+Update with `git -C <clone> pull --ff-only`, then `/reload-plugins` in sessions that are
+already open; new sessions load the new code. Read the incoming diff before the pull: this
+code runs in every project.
 
 ## Pane
 
@@ -100,7 +104,7 @@ your own status line script (needs `jq`):
 ```
 input=$(cat)
 # ... print your first line ...
-ck=$(printf '%s' "$input" | sh ~/work/AI/claude-mods/checkpoints/statusline/checkpoints-line.sh)
+ck=$(printf '%s' "$input" | sh <clone>/statusline/checkpoints-line.sh)
 [ -n "$ck" ] && printf '%s\n' "$ck"
 ```
 
@@ -131,14 +135,18 @@ A tracker is named by the slug after `checkpoints-` in its file name; a header l
 ## Check after an edit
 
 ```
-claude plugin validate ~/work/AI/claude-mods/checkpoints
-claude plugin test ~/work/AI/claude-mods/checkpoints
-tsc -p ~/work/AI/claude-mods/checkpoints
+claude plugin validate <clone>
+claude plugin test <clone>
+tsc -p <clone>
 ```
 
 `plugin test` mounts the pane in the engine itself (`tests/pane.test.tsx`): a tree the engine
 refuses fails there instead of leaving an empty pane. Run it after every change to the
 drawing. `tsc` needs the types the engine lays in `.claude-plugin/types/` once it has loaded the mod.
+
+## License
+
+BSD 2-Clause, see `LICENSE`.
 
 ## Security note
 
