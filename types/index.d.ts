@@ -8,7 +8,12 @@ export type Row = {
   deps: string[]
   // Epoch ms of the newest progress-log row that names this row's ID; 0 = never named.
   sinceMs: number
+  // 1-based line of the row in the tracker file; 0 for a row only the script prints.
+  line: number
 }
+
+// Which rows the tracks list.
+export type RowFilter = 'all' | 'you' | 'hot'
 
 // How the pane and the status line are drawn.
 export type Style = 'modern' | 'ascii'
@@ -44,6 +49,8 @@ export type Snapshot = {
   trackers: Tracker[]
   // Names of finished trackers past their grace period, left out of `trackers`.
   retired: string[]
+  // The project folder the trackers were read from (for file links).
+  cwd: string
   checkedAt: string
   isRunning: boolean
   error: string
@@ -63,6 +70,10 @@ declare module 'claude-code' {
       overview: boolean
       // Section keys folded against their default: 'you', '<path>#<track>', '<path>#recent'.
       folded: string[]
+      // Rows opened one by one: '<path>#<row id>'.
+      expanded: string[]
+      // Which rows the tracks list.
+      filter: RowFilter
       // Icons and block bars ('modern', the default) or plain ASCII ('ascii').
       style: Style
       // DONE/OK rows listed in full (true) or folded into one line per track (false).

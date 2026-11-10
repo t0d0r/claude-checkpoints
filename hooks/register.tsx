@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Group, LogEntry, Row, Snapshot, Style, Tracker } from '../types'
+import type { Group, LogEntry, Row, RowFilter, Snapshot, Style, Tracker } from '../types'
 
 // Generic checkpoint pane for the project a session runs in. Convention
 // (skills/checkpoint-tracker/SKILL.md in this plugin):
@@ -58,12 +58,29 @@ const STATUS_MAX_IDS = 4
 
 const snapshot = atom(
   { plugin: 'checkpoints', key: 'snapshot' } as const,
-  { trackers: [], retired: [], checkedAt: '', isRunning: false, error: '' },
-  { shape: 'snapshot-6' },
+  { trackers: [], retired: [], cwd: '', checkedAt: '', isRunning: false, error: '' },
+  { shape: 'snapshot-7' },
 )
 
-// Long notes: wrapped (scroll the pane with the wheel or scroll keys) or one line each.
-const isWrapped = atom({ plugin: 'checkpoints', key: 'isWrapped' } as const, true)
+// Every row wrapped in full (true), or one line each (false, the default) with single rows
+// opened by a click or Enter on them (`expandedRows`).
+const isWrapped = atom({ plugin: 'checkpoints', key: 'isWrapped' } as const, false)
+
+// Rows opened one by one ('<tracker path>#<row id>'): each shows its whole title and note,
+// wrapped, and the file and line it comes from, whatever the wrap toggle says.
+const expandedRows = atom({ plugin: 'checkpoints', key: 'expanded' } as const, [] as string[])
+
+// Which rows the tracks list: every one, only those waiting on the operator, or only the hot
+// ones (blocked, failed, running, unknown). A track without a matching row is left out.
+const rowFilter = atom({ plugin: 'checkpoints', key: 'filter' } as const, 'all' as RowFilter)
+const FILTERS: RowFilter[] = ['all', 'you', 'hot']
+const HOT_STATES = ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN']
+
+function passes(filter: RowFilter, state: string): boolean {
+  if (filter === 'you') return state === 'OPERATOR'
+  if (filter === 'hot') return HOT_STATES.includes(state)
+  return true
+}
 
 // The tracker path this session follows; '' = none (status line shows every open tracker).
 const pinned = atom({ plugin: 'checkpoints', key: 'pinned' } as const, '')
@@ -98,7 +115,7 @@ type Glyphs = {
   state: Record<string, string>
   barOn: string; barOff: string; barL: string; barR: string
   sep: string; pinOn: string; pinOff: string
-  open: string; folded: string; more: string; later: string
+  open: string; folded: string; more: string; later: string; rule: string
 }
 const GLYPHS: Record<Style, Glyphs> = {
   modern: {
@@ -108,13 +125,13 @@ const GLYPHS: Record<Style, Glyphs> = {
     },
     barOn: '\u2588', barOff: '\u2591', barL: '', barR: '',
     sep: ' \u2502 ', pinOn: '\u2605 ', pinOff: '\u2606 ',
-    open: '\u25BE ', folded: '\u25B8 ', more: '\u2026 ', later: '\u25C7 ',
+    open: '\u25BE ', folded: '\u25B8 ', more: '\u2026 ', later: '\u25C7 ', rule: '\u2500',
   },
   ascii: {
     state: {},
     barOn: '#', barOff: '.', barL: '[', barR: ']',
     sep: ' | ', pinOn: '* ', pinOff: 'pin ',
-    open: '[-] ', folded: '[+] ', more: '+ ', later: '',
+    open: '[-] ', folded: '[+] ', more: '+ ', later: '', rule: '-',
   },
 }
 
@@ -203,7 +220,7 @@ function parseTracker(path: string, text: string): Tracker {
   const log: LogEntry[] = []
   // Column of "depends on" in the table being read; -1 = that table has none.
   let depCol = -1
-  for (const line of lines) {
+  for (const [at0, line] of lines.entries()) {
     const lt = line.match(LOG_ROW)
     if (lt) {
       const atMs = Date.parse(`${lt[1] ?? ''}T${lt[2] ?? '00:00'}:00Z`) || 0
@@ -237,6 +254,7 @@ function parseTracker(path: string, text: string): Tracker {
       source: 'tracker',
       deps: depCol > 0 && depCol !== at ? parseDeps(cells[depCol] ?? '') : [],
       sinceMs: 0,
+      line: at0 + 1,
     })
   }
   // When the log last named a row (IDs and ranges, as in a "depends on" cell): the nearest
@@ -265,7 +283,7 @@ function parseLive(text: string): Row[] {
   const rows: Row[] = []
   for (const line of text.split('\n')) {
     const m = line.match(/^([A-Z]{1,3}(?:\d+[a-z]?|-[a-z]+))\s+(\S+)\s+(.*)$/)
-    if (m) rows.push({ id: m[1] ?? '', state: m[2] ?? '', title: '', note: m[3] ?? '', source: 'live', deps: [], sinceMs: 0 })
+    if (m) rows.push({ id: m[1] ?? '', state: m[2] ?? '', title: '', note: m[3] ?? '', source: 'live', deps: [], sinceMs: 0, line: 0 })
   }
   return rows
 }
@@ -636,7 +654,7 @@ async function refresh($: EngineInterface, force = false): Promise<void> {
       .map(r => `${t.name} ${r.id} ${before.get(`${t.path}#${r.id}`)} -> ${r.state}`),
   )
   const stamp = new Date().toISOString().slice(11, 16) + ' UTC'
-  await update($, snapshot, () => ({ trackers, retired, checkedAt: stamp, isRunning: false, error }))
+  await update($, snapshot, () => ({ trackers, retired, cwd, checkedAt: stamp, isRunning: false, error }))
   const line = error
     ? `ckpt ${stamp} | error: ${error.slice(0, 60)}`
     : paths.length === 0 ? '' : statusLine(trackers, stamp, pin, await read($, styleAtom))
@@ -692,7 +710,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
     const s = await read($, snapshot)
     const wrapped = await read($, isWrapped)
     const wrap = wrapped ? 'wrap' : 'truncate-end'
@@ -708,7 +726,29 @@ export const register: Register = on => {
     const g = GLYPHS[style]
     // Sections fold on a click on their heading; `sectionMark` is the marker before it.
     const foldedKeys = await read($, foldedSections)
-    const isFolded = (key: string) => foldedKeys.includes(key)
+    // The waiting block starts folded while every tracker is a title line (the overview stays
+    // an overview) and open otherwise; every other section starts open.
+    const startsFolded = (key: string) => key === 'you' && ordered.every(isBrief)
+    const isFolded = (key: string) => startsFolded(key) !== foldedKeys.includes(key)
+    const filter = await read($, rowFilter)
+    const expanded = await read($, expandedRows)
+    const rowKey = (t: Tracker, r: Row) => `${t.path}#${r.id}`
+    const expand = (key: string) =>
+      void update($, expandedRows, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+    // From the waiting block to the row itself: open its tracker and its track, show every
+    // row again if the filter hides it, open the row, then scroll to it and focus it.
+    const goTo = async (t: Tracker, r: Row) => {
+      const key = rowKey(t, r)
+      const track = `${t.path}#${groupOf(r.id)}`
+      if (isBrief(t)) {
+        await update($, toggledPaths, v => (v.includes(t.path) ? v.filter(p => p !== t.path) : [...v, t.path]))
+      }
+      if (isFolded(track)) await update($, foldedSections, v => v.filter(k => k !== track))
+      if (!passes(filter, r.state)) await update($, rowFilter, () => 'all' as RowFilter)
+      await update($, expandedRows, v => (v.includes(key) ? v : [...v, key]))
+      await $.ui.scroll({ in: PANE, to: { key: `r:${key}` }, block: 'start' }).catch(() => undefined)
+      await $.ui.focus({ requestId: PANE, key: `r:${key}` }).catch(() => undefined)
+    }
     const fold = (key: string) =>
       void update($, foldedSections, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
     const sectionMark = (key: string) => (isFolded(key) ? g.folded : g.open)
@@ -720,15 +760,12 @@ export const register: Register = on => {
     }
     const isBrief = (t: Tracker) =>
       (t.isClosed || (hasPin ? only && t.path !== pin : isOverview)) !== toggled.includes(t.path)
-    // What waits on the operator: counted across every open tracker, listed (decidable rows
-    // first) for the trackers drawn in full, so an opened tracker is not pushed down by the
-    // rows of the ones still folded.
+    // What waits on the operator, across every open tracker, decidable rows first. The block
+    // is a way in: a press on one of its rows opens that row's tracker and track and moves
+    // the pane to it.
     const open = ordered.filter(t => !t.isClosed)
-    const countNow = open.reduce((n, t) => n + waitingOn(t).now.length, 0)
-    const countLater = open.reduce((n, t) => n + waitingOn(t).later.length, 0)
-    const shown = open.filter(t => !isBrief(t))
-    const youNow = shown.flatMap(t => waitingOn(t).now.map(w => ({ t, ...w })))
-    const youLater = shown.flatMap(t => waitingOn(t).later.map(w => ({ t, ...w })))
+    const youNow = open.flatMap(t => waitingOn(t).now.map(w => ({ t, ...w })))
+    const youLater = open.flatMap(t => waitingOn(t).later.map(w => ({ t, ...w })))
     const clock = Date.now()
     // Age of a waiting row, yellow once it is STALE_DAYS old; six columns, '-' when unknown.
     const ageCell = (sinceMs: number) => (
@@ -762,7 +799,7 @@ export const register: Register = on => {
     }
     return (
       <Box flexDirection="column">
-        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / o / i / q / p; Enter on a title or a heading folds it</Text>
+        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / f / o / i / q / p; Enter folds a title or heading, opens a row, follows a waiting row</Text>
         <Box flexDirection="row">
           <Text dimColor wrap="truncate-end">
             {s.isRunning
@@ -785,6 +822,13 @@ export const register: Register = on => {
             label={withDone ? 'Done: fold' : 'Done: show'}
             hotkey="d"
             onPress={() => void update($, showDone, v => !v)}
+          />
+          <Text> </Text>
+          <Button
+            key="filter"
+            label={`Rows: ${filter}`}
+            hotkey="f"
+            onPress={() => void update($, rowFilter, v => FILTERS[(FILTERS.indexOf(v) + 1) % FILTERS.length] ?? 'all')}
           />
           <Text> </Text>
           <Button key="style" label={style === 'modern' ? 'Style: ASCII' : 'Style: icons'} hotkey="i" onPress={() => void setStyle()} />
@@ -819,35 +863,32 @@ export const register: Register = on => {
         {s.trackers.length === 0 && !s.isRunning && (
           <Text dimColor>no *-checkpoints-*.md tracker found</Text>
         )}
-        {countNow + countLater > 0 && shown.length < open.length && (
-          <Box key="youCount" marginTop={1}>
-            <Text color="permission" wrap="truncate-end">
-              {`Waiting on you in all trackers: ${countNow} now, ${countLater} later - a click on a title opens its list`}
-            </Text>
-          </Box>
-        )}
         {(youNow.length > 0 || youLater.length > 0) && (
           <Box key="you" flexDirection="column" marginTop={1}>
             <Button key="h:you" plain onPress={() => fold('you')}>
               <Text bold color="permission">
-                {`${sectionMark('you')}Waiting on you now (${youNow.length})${isFolded('you') && youLater.length > 0 ? `, later (${youLater.length})` : ''}`}
+                {`${sectionMark('you')}Waiting on you now (${youNow.length})${isFolded('you') && youLater.length > 0 ? `, later (${youLater.length})` : ''}${isFolded('you') ? '' : ' - Enter on a row goes to it'}`}
               </Text>
             </Button>
             {!isFolded('you') && youNow.map(w => (
-              <Text wrap={wrap}>
-                <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
-                <Text color="permission">{w.row.id.padEnd(4)}</Text>
-                {ageCell(w.row.sinceMs)}
-                {w.row.title}
-              </Text>
+              <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
+                <Text wrap={wrap}>
+                  <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
+                  <Text color="permission">{w.row.id.padEnd(4)}</Text>
+                  {ageCell(w.row.sinceMs)}
+                  {w.row.title}
+                </Text>
+              </Button>
             ))}
             {!isFolded('you') && youLater.length > 0 && (
               <Text dimColor>{`${g.later}later (${youLater.length}) - a prerequisite is still open`}</Text>
             )}
             {!isFolded('you') && youLater.map(w => (
-              <Text dimColor wrap={wrap}>
-                {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}${w.row.title} (after ${w.after.join(' ')})`}
-              </Text>
+              <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
+                <Text dimColor wrap={wrap}>
+                  {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}${w.row.title} (after ${w.after.join(' ')})`}
+                </Text>
+              </Button>
             ))}
           </Box>
         )}
@@ -855,17 +896,19 @@ export const register: Register = on => {
           <Box key={`b:${t.path}`} flexDirection="row">
             {pinButton(t)}
             <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-              {`${g.folded}${t.name}${t.isClosed ? ' (closed)' : ''}`}
+              <Text bold color={t.isClosed ? 'inactive' : 'suggestion'}>{`${g.folded}${t.name}${t.isClosed ? ' (closed)' : ''}`}</Text>
               {!t.isClosed && progress(t)}
               <Text dimColor>{summaryTail(t, style) !== '' ? `${g.sep}${summaryTail(t, style)}` : ''}</Text>
             </Button>
           </Box>
         ) : (
           <Box key={`f:${t.path}`} flexDirection="column" marginTop={1}>
+            {/* A rule above an opened tracker: where one ends and the next begins. */}
+            <Text dimColor wrap="truncate-end">{g.rule.repeat(200)}</Text>
             <Box flexDirection="row">
               {pinButton(t)}
               <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-                {`${g.open}${t.name}${t.path === pin ? ' (pinned)' : ''}${t.isClosed ? ' (closed)' : ''}`}
+                <Text bold color="suggestion">{`${g.open}${t.name.toUpperCase()}${t.path === pin ? ' (pinned)' : ''}${t.isClosed ? ' (closed)' : ''}`}</Text>
                 {progress(t)}
               </Button>
             </Box>
@@ -875,7 +918,9 @@ export const register: Register = on => {
             </Text>
             {t.error !== '' && <Text color="error" wrap={wrap}>{t.error}</Text>}
             {
-              [...new Set(t.rows.map(r => groupOf(r.id)))].map(k => (
+              [...new Set(t.rows.map(r => groupOf(r.id)))]
+                .filter(k => filter === 'all' || t.rows.some(r => groupOf(r.id) === k && passes(filter, r.state)))
+                .map(k => (
                 <Box flexDirection="column" marginTop={1}>
                   <Button key={`h:${t.path}#${k}`} plain onPress={() => fold(`${t.path}#${k}`)}>
                     <Text bold>
@@ -886,12 +931,15 @@ export const register: Register = on => {
                     </Text>
                   </Button>
                   {!isFolded(`${t.path}#${k}`) && t.rows
-                    .filter(r => groupOf(r.id) === k && (withDone || !isDoneState(r.state)))
+                    .filter(r => groupOf(r.id) === k && passes(filter, r.state)
+                      && (withDone || filter !== 'all' || !isDoneState(r.state) || expanded.includes(rowKey(t, r))))
                     .map(r => {
                       // OPERATOR behind an open prerequisite: dimmed, with what it waits for.
                       const after = r.state === 'OPERATOR' ? blockers(t, r) : []
+                      const isOpen = expanded.includes(rowKey(t, r))
                       return (
-                        <Text wrap={wrap}>
+                        <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
+                        <Text wrap={isOpen ? 'wrap' : wrap}>
                           <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
                           {r.id.padEnd(4)}
                           {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
@@ -901,10 +949,17 @@ export const register: Register = on => {
                           {r.title}
                           {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
                           <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
+                          {isOpen && r.line > 0 && (
+                            <Text dimColor>
+                              {'  '}
+                              <Link href={`file://${encodeURI(`${s.cwd ?? ''}/${t.path}`)}`} label={`${t.path}:${r.line}`} />
+                            </Text>
+                          )}
                         </Text>
+                        </Button>
                       )
                     })}
-                  {!withDone && !isFolded(`${t.path}#${k}`) && (() => {
+                  {!withDone && filter === 'all' && !isFolded(`${t.path}#${k}`) && (() => {
                     // Folded DONE/OK rows of a track that still has open ones: count and IDs.
                     const rows = t.rows.filter(r => groupOf(r.id) === k)
                     const done = rows.filter(r => isDoneState(r.state))

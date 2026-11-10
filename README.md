@@ -48,11 +48,22 @@ Read the incoming diff before the pull: this code runs in every project.
   are single-width characters of common Unicode blocks - no emoji and no patched font needed.
 - Every section folds: a click (or Enter) on a tracker title, on the "Waiting on you"
   heading, on a track heading or on "recent" folds or opens it, for this session.
+- Rows open one by one: a click (or Enter) on a row shows its whole title and note, wrapped,
+  and a link `<tracker file>:<line>` to where it stands in the file (a `file://` link: what
+  opens it is the terminal's choice, and it carries no line number). `Wrap` / `w` opens or
+  shortens every row at once; rows are one line each by default.
+- Row filter: the `Rows: all` / `Rows: you` / `Rows: hot` button or `f` cycles between every
+  row, only those waiting on you, and only blocked, failed, running or unknown ones. A track
+  with no matching row is left out.
+- Go to a waiting row: a click (or Enter) on a row of the "Waiting on you" block opens its
+  tracker and track, opens the row and moves the pane and the focus to it. The block starts
+  folded while every tracker is a title line; its heading carries the counts.
+- Tracker titles stand out: bold and coloured, an opened tracker in capitals under a rule.
 - Overview first: without a pin the pane opens as one title line per tracker
   (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
   to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
   it; `All: full` / `All: titles` button or `o` switches every tracker at once.
-- "Waiting on you" block on top (one count line while every tracker is a title line): every OPERATOR row of every open tracker in one list. Rows
+- "Waiting on you" block on top: every OPERATOR row of every open tracker in one list. Rows
   that can be decided now come first; a row whose "depends on" cell names a checkpoint that is
   not DONE/OK yet is listed under "later" with `(after <ids>)` and is dimmed in its track too.
   Dependencies are the checkpoint IDs in the "depends on" column (`B4 + approval`, `A4 + D4`,
