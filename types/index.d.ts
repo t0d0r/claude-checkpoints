@@ -56,6 +56,8 @@ declare module 'claude-code' {
       onlyPinned: boolean
       // Tracker paths whose title was clicked: each inverts its default view (brief <-> full).
       toggled: string[]
+      // Without a pin: one title line per tracker (true) or every tracker in full (false).
+      overview: boolean
       // DONE/OK rows listed in full (true) or folded into one line per track (false).
       showDone: boolean
     }

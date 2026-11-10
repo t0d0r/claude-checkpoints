@@ -39,7 +39,11 @@ Read the incoming diff before the pull: this code runs in every project.
 - `/checkpoints` opens it (half the terminal's width when docked - the engine caps a dock at
   45% - or 24 rows inline) and refreshes; `/checkpoints <slug>` pins one tracker to this
   session; `/checkpoints off` unpins.
-- "Waiting on you" block on top: every OPERATOR row of every open tracker in one list. Rows
+- Overview first: without a pin the pane opens as one title line per tracker
+  (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
+  to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
+  it; `All: full` / `All: titles` button or `o` switches every tracker at once.
+- "Waiting on you" block on top (one count line while every tracker is a title line): every OPERATOR row of every open tracker in one list. Rows
   that can be decided now come first; a row whose "depends on" cell names a checkpoint that is
   not DONE/OK yet is listed under "later" with `(after <ids>)` and is dimmed in its track too.
   Dependencies are the checkpoint IDs in the "depends on" column (`B4 + approval`, `A4 + D4`,

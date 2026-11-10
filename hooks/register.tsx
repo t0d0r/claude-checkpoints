@@ -76,6 +76,11 @@ const onlyPinned = atom({ plugin: 'checkpoints', key: 'onlyPinned' } as const, t
 // session. Cleared when the "Others" button flips the default.
 const toggledPaths = atom({ plugin: 'checkpoints', key: 'toggled' } as const, [] as string[])
 
+// Without a pin: true (the default) = the pane is an overview, one title line per tracker
+// (name, count, bar, per-track figures, what is hot or waits), to pick the one to work on;
+// a click on a title opens that tracker. false = every tracker in full.
+const overview = atom({ plugin: 'checkpoints', key: 'overview' } as const, true)
+
 // DONE/OK rows: folded into one line per track (false, the default) or listed in full (true).
 const showDone = atom({ plugin: 'checkpoints', key: 'showDone' } as const, false)
 
@@ -632,10 +637,18 @@ export const register: Register = on => {
     // A tracker drawn as one line: closed ones always; with a pin and "only pinned" on, the others too.
     const toggled = await read($, toggledPaths)
     const withDone = await read($, showDone)
-    // Everything that waits on the operator, across the open trackers, decidable rows first.
+    const isOverview = await read($, overview)
+    const isBrief = (t: Tracker) =>
+      (t.isClosed || (hasPin ? only && t.path !== pin : isOverview)) !== toggled.includes(t.path)
+    // What waits on the operator: counted across every open tracker, listed (decidable rows
+    // first) for the trackers drawn in full, so an opened tracker is not pushed down by the
+    // rows of the ones still folded.
     const open = ordered.filter(t => !t.isClosed)
-    const youNow = open.flatMap(t => waitingOn(t).now.map(w => ({ t, ...w })))
-    const youLater = open.flatMap(t => waitingOn(t).later.map(w => ({ t, ...w })))
+    const countNow = open.reduce((n, t) => n + waitingOn(t).now.length, 0)
+    const countLater = open.reduce((n, t) => n + waitingOn(t).later.length, 0)
+    const shown = open.filter(t => !isBrief(t))
+    const youNow = shown.flatMap(t => waitingOn(t).now.map(w => ({ t, ...w })))
+    const youLater = shown.flatMap(t => waitingOn(t).later.map(w => ({ t, ...w })))
     const clock = Date.now()
     // Age of a waiting row, yellow once it is STALE_DAYS old; six columns, '-' when unknown.
     const ageCell = (sinceMs: number) => (
@@ -643,8 +656,6 @@ export const register: Register = on => {
     )
     const nameWidth = Math.max(0, ...[...youNow, ...youLater].map(w => w.t.name.length))
     // A click on a title inverts that tracker's default for this session (list `toggled`).
-    const isBrief = (t: Tracker) =>
-      (t.isClosed || (hasPin && only && t.path !== pin)) !== toggled.includes(t.path)
     const flip = (path: string) =>
       void update($, toggledPaths, v => (v.includes(path) ? v.filter(p => p !== path) : [...v, path]))
     // The marker before a title: "*" on the pinned tracker (press = unpin), dim "pin" on the
@@ -671,7 +682,7 @@ export const register: Register = on => {
     }
     return (
       <Box flexDirection="column">
-        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / q / p or Enter on a title</Text>
+        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / o / q / p or Enter on a title</Text>
         <Box flexDirection="row">
           <Text dimColor wrap="truncate-end">
             {s.isRunning
@@ -697,6 +708,18 @@ export const register: Register = on => {
           />
           <Text> </Text>
           <Button key="close" label="Close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })} />
+          {!hasPin && <Text> </Text>}
+          {!hasPin && (
+            <Button
+              key="overview"
+              label={isOverview ? 'All: full' : 'All: titles'}
+              hotkey="o"
+              onPress={() => {
+                void update($, overview, v => !v)
+                void update($, toggledPaths, () => [])
+              }}
+            />
+          )}
           {hasPin && <Text> </Text>}
           {hasPin && (
             <Button
@@ -713,6 +736,13 @@ export const register: Register = on => {
         {s.error !== '' && <Text color="error" wrap="truncate-end">{s.error}</Text>}
         {s.trackers.length === 0 && !s.isRunning && (
           <Text dimColor>no *-checkpoints-*.md tracker found</Text>
+        )}
+        {countNow + countLater > 0 && shown.length < open.length && (
+          <Box key="youCount" marginTop={1}>
+            <Text color="permission" wrap="truncate-end">
+              {`Waiting on you in all trackers: ${countNow} now, ${countLater} later - a click on a title opens its list`}
+            </Text>
+          </Box>
         )}
         {(youNow.length > 0 || youLater.length > 0) && (
           <Box key="you" flexDirection="column" marginTop={1}>
