@@ -79,6 +79,9 @@ Read the incoming diff before the pull: this code runs in every project.
   fully done track shows only its heading). `Done: show` / `Done: fold` button or `d` toggles.
 - Refresh button / `r`; `w` toggles wrapped notes and one line per row; `q` closes. Hotkeys
   work while the pane holds the focus.
+- The pin is spelled out: the pinned tracker's marker reads `PINNED` in bold yellow (a star
+  in `modern`, `[*]` in `ascii`), the others read `pin`, and a line under the buttons names
+  the pinned tracker and how to unpin.
 - With a pin: the pinned tracker in full, the others as one title line each; the
   `Others: full` / `Others: titles` button or `p` toggles, a click on a title opens or folds
   that tracker.

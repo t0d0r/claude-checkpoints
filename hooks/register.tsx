@@ -124,13 +124,13 @@ const GLYPHS: Record<Style, Glyphs> = {
       BLOCKED: '\u25A0', FAILED: '\u2718', FAIL: '\u2718', INFO: '\u00B7', UNKNOWN: '?',
     },
     barOn: '\u2588', barOff: '\u2591', barL: '', barR: '',
-    sep: ' \u2502 ', pinOn: '\u2605 ', pinOff: '\u2606 ',
+    sep: ' \u2502 ', pinOn: '\u2605 PINNED ', pinOff: '\u2606 pin ',
     open: '\u25BE ', folded: '\u25B8 ', more: '\u2026 ', later: '\u25C7 ', rule: '\u2500',
   },
   ascii: {
     state: {},
     barOn: '#', barOff: '.', barL: '[', barR: ']',
-    sep: ' | ', pinOn: '* ', pinOff: 'pin ',
+    sep: ' | ', pinOn: '[*] PINNED ', pinOff: '[ ] pin ',
     open: '[-] ', folded: '[+] ', more: '+ ', later: '', rule: '-',
   },
 }
@@ -790,7 +790,7 @@ export const register: Register = on => {
     const rule = <Text dimColor wrap="truncate-end">{g.rule.repeat(columns)}</Text>
     const pinButton = (t: Tracker) => (
       <Button key={`p:${t.path}`} plain dimColor={t.path !== pin} onPress={() => void setPin(t.path)}>
-        {t.path === pin ? g.pinOn : g.pinOff}
+        {t.path === pin ? <Text bold color="warning">{g.pinOn}</Text> : g.pinOff}
       </Button>
     )
     // Overall count + bar, then one coloured figure per track: " 17/24 [#######...] A 10/11 B 3/9"
@@ -863,6 +863,11 @@ export const register: Register = on => {
             />
           )}
         </Box>
+        {hasPin && (
+          <Text color="warning" wrap="truncate-end">
+            {`${g.pinOn}${s.trackers.find(t => t.path === pin)?.name ?? ''} - this session's status line follows it; press its marker or /checkpoints off to unpin`}
+          </Text>
+        )}
         {s.error !== '' && <Text color="error" wrap="truncate-end">{s.error}</Text>}
         {s.trackers.length === 0 && !s.isRunning && (
           <Text dimColor>no *-checkpoints-*.md tracker found</Text>
@@ -914,7 +919,7 @@ export const register: Register = on => {
             <Box flexDirection="row">
               {pinButton(t)}
               <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-                <Text bold color="suggestion">{`${g.open}${t.name.toUpperCase()}${t.path === pin ? ' (pinned)' : ''}${t.isClosed ? ' (closed)' : ''}`}</Text>
+                <Text bold color="suggestion">{`${g.open}${t.name.toUpperCase()}${t.isClosed ? ' (closed)' : ''}`}</Text>
                 {progress(t)}
               </Button>
             </Box>
