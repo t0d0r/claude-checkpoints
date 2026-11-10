@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Group, Row, Snapshot, Tracker } from '../types'
+import type { Group, LogEntry, Row, Snapshot, Tracker } from '../types'
 
 // Generic checkpoint pane for the project a session runs in. Convention
 // (skills/checkpoint-tracker/SKILL.md in this plugin):
@@ -46,12 +46,20 @@ const ROW_ID = /^[A-Z]{1,3}(\d+[a-z]?|-[a-z]+)$/
 // (/checkpoints <slug>) shows it again. The last change is the newest progress-log time
 // (`| YYYY-MM-DD HH:MM | ... |`, UTC), or the file's mtime when the log has no row.
 const FINISHED_GRACE_MS = 2 * 24 * 60 * 60 * 1000
-const LOG_TIME = /^\| (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \|/
+// A progress-log row: `| YYYY-MM-DD[ HH:MM] | change |` (UTC; a date alone counts as 00:00).
+const LOG_ROW = /^\| (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))? \| (.*?) \|\s*$/
+// How many of the newest progress-log rows a tracker shows under "recent".
+const LOG_SHOWN = 3
+const DAY_MS = 24 * 60 * 60 * 1000
+// A row that has waited this many days is drawn as a warning.
+const STALE_DAYS = 7
+// Status bar: a list of IDs longer than this is given as a count.
+const STATUS_MAX_IDS = 4
 
 const snapshot = atom(
   { plugin: 'checkpoints', key: 'snapshot' } as const,
-  { trackers: [], checkedAt: '', isRunning: false, error: '' },
-  { shape: 'snapshot-5' },
+  { trackers: [], retired: [], checkedAt: '', isRunning: false, error: '' },
+  { shape: 'snapshot-6' },
 )
 
 // Long notes: wrapped (scroll the pane with the wheel or scroll keys) or one line each.
@@ -99,6 +107,17 @@ function parseDeps(cell: string): string[] {
   return [...new Set(ids)]
 }
 
+// "4d" / "today" since a row was last named in the progress log; '' when it never was.
+function age(sinceMs: number, now: number): string {
+  if (!sinceMs) return ''
+  const days = Math.floor((now - sinceMs) / DAY_MS)
+  return days >= 1 ? `${days}d` : 'today'
+}
+
+function isStale(sinceMs: number, now: number): boolean {
+  return sinceMs > 0 && now - sinceMs >= STALE_DAYS * DAY_MS
+}
+
 function isDoneState(state: string): boolean {
   return state === 'DONE' || state === 'OK'
 }
@@ -128,11 +147,17 @@ function parseTracker(path: string, text: string): Tracker {
   const groups: Group[] = []
   const rows: Row[] = []
   let lastChangeMs = 0
+  const log: LogEntry[] = []
   // Column of "depends on" in the table being read; -1 = that table has none.
   let depCol = -1
   for (const line of lines) {
-    const lt = line.match(LOG_TIME)
-    if (lt) lastChangeMs = Math.max(lastChangeMs, Date.parse(`${(lt[1] ?? '').replace(' ', 'T')}:00Z`) || 0)
+    const lt = line.match(LOG_ROW)
+    if (lt) {
+      const atMs = Date.parse(`${lt[1] ?? ''}T${lt[2] ?? '00:00'}:00Z`) || 0
+      lastChangeMs = Math.max(lastChangeMs, atMs)
+      log.push({ atMs, text: (lt[3] ?? '').replace(/`/g, '') })
+      continue
+    }
     const g = line.match(/^## Track ([A-Z]+) - (.+)$/)
     if (g) {
       groups.push({ key: g[1] ?? '', title: `${g[1] ?? ''} - ${g[2] ?? ''}` })
@@ -158,9 +183,17 @@ function parseTracker(path: string, text: string): Tracker {
       note: cell.slice(state.length).trim(),
       source: 'tracker',
       deps: depCol > 0 && depCol !== at ? parseDeps(cells[depCol] ?? '') : [],
+      sinceMs: 0,
     })
   }
-  return { path, name, title, isClosed, script, groups, rows, error: '', liveAt: '', lastChangeMs }
+  // When the log last named a row (IDs and ranges, as in a "depends on" cell): the nearest
+  // thing a tracker records to "in this state since". 0 = the log never names it.
+  const named = log.map(l => ({ atMs: l.atMs, ids: parseDeps(l.text) }))
+  for (const r of rows) {
+    r.sinceMs = Math.max(0, ...named.filter(n => n.ids.includes(r.id)).map(n => n.atMs))
+  }
+  log.sort((a, b) => b.atMs - a.atMs)
+  return { path, name, title, isClosed, script, groups, rows, error: '', liveAt: '', lastChangeMs, log: log.slice(0, LOG_SHOWN) }
 }
 
 // Nothing left to do: closed, or every counted row DONE/OK and the script raised no error.
@@ -179,7 +212,7 @@ function parseLive(text: string): Row[] {
   const rows: Row[] = []
   for (const line of text.split('\n')) {
     const m = line.match(/^([A-Z]{1,3}(?:\d+[a-z]?|-[a-z]+))\s+(\S+)\s+(.*)$/)
-    if (m) rows.push({ id: m[1] ?? '', state: m[2] ?? '', title: '', note: m[3] ?? '', source: 'live', deps: [] })
+    if (m) rows.push({ id: m[1] ?? '', state: m[2] ?? '', title: '', note: m[3] ?? '', source: 'live', deps: [], sinceMs: 0 })
   }
   return rows
 }
@@ -302,7 +335,17 @@ function trackerSummary(t: Tracker): string {
 // the pane and in the pinned form.
 function compactSummary(t: Tracker): string {
   const o = overall(t)
-  const tail = summaryTail(t).replace(' | waiting on you', ', you').replace(/^waiting on you/, 'you')
+  const hot = t.rows.filter(r => ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN'].includes(r.state))
+  // Few hot rows are named; more are counted per state ("3 BLOCKED").
+  const hotText = hot.length <= 2
+    ? hot.map(r => `${r.id} ${r.state}`)
+    : [...new Set(hot.map(r => r.state))].map(st => `${hot.filter(r => r.state === st).length} ${st}`)
+  const { now, later } = waitingOn(t)
+  const laterText = later.length > 0 ? ` (+${later.length} later)` : ''
+  const you = now.length > 0
+    ? `you: ${now.length <= STATUS_MAX_IDS ? now.map(w => w.row.id).join(' ') : now.length}${laterText}`
+    : later.length > 0 ? `you later: ${later.length}` : ''
+  const tail = [...hotText, ...(you !== '' ? [you] : []), ...(t.error !== '' ? ['script error'] : [])].join(', ')
   return [`${t.name} ${o.done}/${o.total}`, ...(tail !== '' ? [tail] : [])].join(' ')
 }
 
@@ -480,7 +523,7 @@ async function loadTracker($: EngineInterface, cwd: string, path: string, force:
   try {
     t = parseTracker(path, await $.fs.read(`${cwd}/${path}`))
   } catch (err) {
-    return { path, name: shortName(path), title: path, isClosed: false, script: '', groups: [], rows: [], error: `read: ${String(err)}`, liveAt: '', lastChangeMs: 0 }
+    return { path, name: shortName(path), title: path, isClosed: false, script: '', groups: [], rows: [], error: `read: ${String(err)}`, liveAt: '', lastChangeMs: 0, log: [] }
   }
   if (t.lastChangeMs === 0) {
     const st = await $.fs.stat(`${cwd}/${path}`).catch(() => undefined)
@@ -515,10 +558,13 @@ async function refresh($: EngineInterface, force = false): Promise<void> {
   const pin = await read($, pinned)
   const clock = await $.clock.now()
   const trackers: Tracker[] = []
+  // Names of the finished trackers left out, for the pane's last line.
+  const retired: string[] = []
   for (const p of paths) {
     const t = await loadTracker($, cwd, p, force)
     // Finished trackers leave after the grace period; the pinned one is always kept.
     if (t.path === pin || !isRetired(t, clock)) trackers.push(t)
+    else retired.push(t.name)
   }
   const before = new Map(now.trackers.flatMap(t => t.rows.map(r => [`${t.path}#${r.id}`, r.state] as const)))
   const changed = trackers.flatMap(t =>
@@ -527,7 +573,7 @@ async function refresh($: EngineInterface, force = false): Promise<void> {
       .map(r => `${t.name} ${r.id} ${before.get(`${t.path}#${r.id}`)} -> ${r.state}`),
   )
   const stamp = new Date().toISOString().slice(11, 16) + ' UTC'
-  await update($, snapshot, () => ({ trackers, checkedAt: stamp, isRunning: false, error }))
+  await update($, snapshot, () => ({ trackers, retired, checkedAt: stamp, isRunning: false, error }))
   const line = error
     ? `ckpt ${stamp} | error: ${error.slice(0, 60)}`
     : paths.length === 0 ? '' : statusLine(trackers, stamp, pin)
@@ -590,6 +636,11 @@ export const register: Register = on => {
     const open = ordered.filter(t => !t.isClosed)
     const youNow = open.flatMap(t => waitingOn(t).now.map(w => ({ t, ...w })))
     const youLater = open.flatMap(t => waitingOn(t).later.map(w => ({ t, ...w })))
+    const clock = Date.now()
+    // Age of a waiting row, yellow once it is STALE_DAYS old; six columns, '-' when unknown.
+    const ageCell = (sinceMs: number) => (
+      <Text color={isStale(sinceMs, clock) ? 'warning' : 'inactive'}>{(age(sinceMs, clock) || '-').padEnd(6)}</Text>
+    )
     const nameWidth = Math.max(0, ...[...youNow, ...youLater].map(w => w.t.name.length))
     // A click on a title inverts that tracker's default for this session (list `toggled`).
     const isBrief = (t: Tracker) =>
@@ -670,6 +721,7 @@ export const register: Register = on => {
               <Text wrap={wrap}>
                 <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
                 <Text color="permission">{w.row.id.padEnd(4)}</Text>
+                {ageCell(w.row.sinceMs)}
                 {w.row.title}
               </Text>
             ))}
@@ -712,7 +764,7 @@ export const register: Register = on => {
                   <Text bold>
                     {t.groups.find(x => x.key === g)?.title ?? g}
                     {trackStats(t).filter(p => p.key === g).map(p => (
-                      <Text color={statColor(p)}>{`  ${p.done}/${p.total}`}</Text>
+                      <Text color={statColor(p)}>{`  ${p.done}/${p.total} ${bar(p)}`}</Text>
                     ))}
                   </Text>
                   {t.rows
@@ -724,6 +776,10 @@ export const register: Register = on => {
                         <Text wrap={wrap}>
                           <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{r.state.padEnd(9)}</Text>
                           {r.id.padEnd(4)}
+                          {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
+                          {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
+                            <Text color={isStale(r.sinceMs, clock) ? 'warning' : 'inactive'}>{`[${age(r.sinceMs, clock)}] `}</Text>
+                          )}
                           {r.title}
                           {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
                           <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
@@ -743,8 +799,25 @@ export const register: Register = on => {
                   })()}
                 </Box>
               ))}
+            {(t.log ?? []).length > 0 && (
+              <Box flexDirection="column" marginTop={1}>
+                <Text dimColor>recent</Text>
+                {(t.log ?? []).map(l => (
+                  <Text dimColor wrap="truncate-end">
+                    {`${new Date(l.atMs).toISOString().slice(5, 16).replace('T', ' ')}  ${l.text}`}
+                  </Text>
+                ))}
+              </Box>
+            )}
           </Box>
         ))}
+        {(s.retired ?? []).length > 0 && (
+          <Box key="retired" marginTop={1}>
+            <Text dimColor wrap="truncate-end">
+              {`finished, hidden (${(s.retired ?? []).length}): ${(s.retired ?? []).join(', ')} - /checkpoints <slug> shows one`}
+            </Text>
+          </Box>
+        )}
       </Box>
     )
   })

@@ -6,6 +6,13 @@ export type Row = {
   source: 'live' | 'tracker'
   // Checkpoint IDs named in the row's "depends on" cell; [] when the table has no such column.
   deps: string[]
+  // Epoch ms of the newest progress-log row that names this row's ID; 0 = never named.
+  sinceMs: number
+}
+
+export type LogEntry = {
+  atMs: number
+  text: string
 }
 
 export type Group = {
@@ -26,10 +33,14 @@ export type Tracker = {
   liveAt: string
   // Epoch ms of the tracker's last change: the newest progress-log time, else the file's mtime.
   lastChangeMs: number
+  // The newest progress-log rows, newest first.
+  log: LogEntry[]
 }
 
 export type Snapshot = {
   trackers: Tracker[]
+  // Names of finished trackers past their grace period, left out of `trackers`.
+  retired: string[]
   checkedAt: string
   isRunning: boolean
   error: string

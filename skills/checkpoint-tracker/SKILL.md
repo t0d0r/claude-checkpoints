@@ -48,7 +48,9 @@ What the pane and the status line look like, and how to install the mod, is in t
   `INFO`, `UNKNOWN`. Colors: DONE/OK green, RUNNING/UNKNOWN yellow, OPERATOR highlighted,
   FAILED/FAIL/BLOCKED red, INFO blue, PENDING grey.
 - **Progress log**: a `## Progress log` table (`| time (UTC) | change |`), one row per state
-  change, newest time decides when a finished tracker retires.
+  change, newest time decides when a finished tracker retires. Name the IDs a row changes
+  (`C1-C3 BLOCKED`, `H1a DONE`): the pane shows the three newest rows as "recent" and takes a
+  waiting row's age from the newest log row that names its ID.
 
 Good practice: a row's evidence names the command or record that proves it, never "see
 session"; a state changes in the same commit as the change it records; DONE means the effect

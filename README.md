@@ -44,6 +44,12 @@ Read the incoming diff before the pull: this code runs in every project.
   not DONE/OK yet is listed under "later" with `(after <ids>)` and is dimmed in its track too.
   Dependencies are the checkpoint IDs in the "depends on" column (`B4 + approval`, `A4 + D4`,
   `C1-C3`); free text names none, and a table without that column has none.
+- Age: a waiting, blocked or failed row carries how long ago the progress log last named its
+  ID (`4d`, `today`, `-` when the log never names it), yellow from 7 days. It is the log's
+  last mention, not a measured time in the state - a tracker whose log names the IDs it
+  changes gives honest figures.
+- Each track heading carries its own count and bar; under a tracker, "recent" lists the three
+  newest progress-log rows; the pane's last line names the finished trackers it leaves out.
 - DONE/OK rows are folded: a track shows its open rows plus one `+ N done: <ids>` line (a
   fully done track shows only its heading). `Done: show` / `Done: fold` button or `d` toggles.
 - Refresh button / `r`; `w` toggles wrapped notes and one line per row; `q` closes. Hotkeys
@@ -71,11 +77,12 @@ ck=$(printf '%s' "$input" | sh ~/work/AI/claude-mods/checkpoints/statusline/chec
 ```
 
 Unpinned: every open tracker as `name done/total` plus only its RUNNING/FAILED/BLOCKED rows
-and `you: <ids decidable now> (+N later)`; pinned: that tracker with its per-track figures and
+(named when one or two, counted per state when more) and `you: <ids decidable now>
+(+N later)` (a count instead of the IDs when more than four); pinned: that tracker with its per-track figures and
 the others as `+N open`. Example:
 
 ```
-ckpt 21:04 UTC | db-upgrade 9/11 you: B1 B2 (+1 later) | web-4 3/8 A3 RUNNING
+ckpt 21:04 UTC | db-upgrade 9/11 you: B1 B2 (+1 later) | web-4 3/8 A3 RUNNING | fleet 27/40 3 BLOCKED, you: 8
 ```
 
 A tracker is named by the slug after `checkpoints-` in its file name; a header line

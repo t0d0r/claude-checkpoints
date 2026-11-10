@@ -1,6 +1,6 @@
 {
   "name": "checkpoints",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Pane and status line for every *-checkpoints-*.md tracker of the current project, merged with its committed read-only progress-check script",
   "types": "./types/index.d.ts"
 }
