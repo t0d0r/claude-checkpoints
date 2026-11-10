@@ -39,6 +39,15 @@ Read the incoming diff before the pull: this code runs in every project.
 - `/checkpoints` opens it (half the terminal's width when docked - the engine caps a dock at
   45% - or 24 rows inline) and refreshes; `/checkpoints <slug>` pins one tracker to this
   session; `/checkpoints off` unpins.
+- Two styles. `modern` (the default): an icon per state (check mark = done, triangle =
+  running, circle = pending, filled diamond = waiting on you, filled square = blocked, cross =
+  failed), block-character bars, box-drawing separators, star pin markers, fold triangles.
+  `ascii`: state words, `[###...]` bars, `|`, `pin`/`*`, `[+]`/`[-]`. The `Style: ASCII` /
+  `Style: icons` button, `i`, or `/checkpoints ascii` / `/checkpoints icons` switches; the
+  choice is stored for the user and applies to new sessions and to the status line. The icons
+  are single-width characters of common Unicode blocks - no emoji and no patched font needed.
+- Every section folds: a click (or Enter) on a tracker title, on the "Waiting on you"
+  heading, on a track heading or on "recent" folds or opens it, for this session.
 - Overview first: without a pin the pane opens as one title line per tracker
   (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
   to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
@@ -88,6 +97,9 @@ the others as `+N open`. Example:
 ```
 ckpt 21:04 UTC | db-upgrade 9/11 you: B1 B2 (+1 later) | web-4 3/8 A3 RUNNING | fleet 27/40 3 BLOCKED, you: 8
 ```
+
+That is the `ascii` style; `modern` draws the same line with icons and box-drawing separators.
+A status line script that cannot show Unicode needs `/checkpoints ascii`.
 
 A tracker is named by the slug after `checkpoints-` in its file name; a header line
 `- short-name: <name>` overrides that.

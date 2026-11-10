@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Group, LogEntry, Row, Snapshot, Tracker } from '../types'
+import type { Group, LogEntry, Row, Snapshot, Style, Tracker } from '../types'
 
 // Generic checkpoint pane for the project a session runs in. Convention
 // (skills/checkpoint-tracker/SKILL.md in this plugin):
@@ -80,6 +80,54 @@ const toggledPaths = atom({ plugin: 'checkpoints', key: 'toggled' } as const, []
 // (name, count, bar, per-track figures, what is hot or waits), to pick the one to work on;
 // a click on a title opens that tracker. false = every tracker in full.
 const overview = atom({ plugin: 'checkpoints', key: 'overview' } as const, true)
+
+// Section keys the user folded or opened against their default: 'you' (the waiting block),
+// '<tracker path>#<track>' (one track) and '<tracker path>#recent'. Every section starts open.
+const foldedSections = atom({ plugin: 'checkpoints', key: 'folded' } as const, [] as string[])
+
+// How the pane and the status line are drawn: 'modern' (icons, block bars, box-drawing
+// separators; the default) or 'ascii' (words, [###...] bars, "|"). Per session, seeded at
+// session start from the user's stored choice ($.store key STYLE_KEY), which the Style button
+// and `/checkpoints ascii` / `/checkpoints icons` write.
+const styleAtom = atom({ plugin: 'checkpoints', key: 'style' } as const, 'modern' as Style)
+const STYLE_KEY = 'style'
+
+// Glyphs per style. The source stays ASCII: every non-ASCII glyph is a \u escape. All are
+// single-width characters of the common Unicode blocks (no emoji, no Nerd Font needed).
+type Glyphs = {
+  state: Record<string, string>
+  barOn: string; barOff: string; barL: string; barR: string
+  sep: string; pinOn: string; pinOff: string
+  open: string; folded: string; more: string; later: string
+}
+const GLYPHS: Record<Style, Glyphs> = {
+  modern: {
+    state: {
+      DONE: '\u2714', OK: '\u2714', RUNNING: '\u25B6', PENDING: '\u25CB', OPERATOR: '\u25C6',
+      BLOCKED: '\u25A0', FAILED: '\u2718', FAIL: '\u2718', INFO: '\u00B7', UNKNOWN: '?',
+    },
+    barOn: '\u2588', barOff: '\u2591', barL: '', barR: '',
+    sep: ' \u2502 ', pinOn: '\u2605 ', pinOff: '\u2606 ',
+    open: '\u25BE ', folded: '\u25B8 ', more: '\u2026 ', later: '\u25C7 ',
+  },
+  ascii: {
+    state: {},
+    barOn: '#', barOff: '.', barL: '[', barR: ']',
+    sep: ' | ', pinOn: '* ', pinOff: 'pin ',
+    open: '[-] ', folded: '[+] ', more: '+ ', later: '',
+  },
+}
+
+// A state as it stands before a row: an icon and a space, or the word padded to nine columns.
+function stateCell(state: string, style: Style): string {
+  const icon = GLYPHS[style].state[state]
+  return icon !== undefined ? `${icon} ` : state.padEnd(9)
+}
+
+// A state inside a summary: the icon, or the word.
+function stateTag(state: string, style: Style): string {
+  return GLYPHS[style].state[state] ?? state
+}
 
 // DONE/OK rows: folded into one line per track (false, the default) or listed in full (true).
 const showDone = atom({ plugin: 'checkpoints', key: 'showDone' } as const, false)
@@ -305,70 +353,80 @@ function overall(t: Tracker): TrackStat {
   }
 }
 
-// A ten-cell bar, plain ASCII: [#####.....]
-function bar(s: { done: number; total: number }): string {
+// A ten-cell bar: [#####.....] in ascii, block characters in modern.
+function bar(s: { done: number; total: number }, style: Style): string {
+  const g = GLYPHS[style]
   const n = s.total > 0 ? Math.round((10 * s.done) / s.total) : 0
-  return `[${'#'.repeat(n)}${'.'.repeat(10 - n)}]`
+  return `${g.barL}${g.barOn.repeat(n)}${g.barOff.repeat(10 - n)}${g.barR}`
 }
 
 // The tail of a summary after the counts: hot rows, what waits on the operator, script error.
-function summaryTail(t: Tracker): string {
+function summaryTail(t: Tracker, style: Style): string {
+  const g = GLYPHS[style]
   const hot = t.rows
     .filter(r => ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN'].includes(r.state))
-    .map(r => `${r.id} ${r.state}`)
+    .map(r => `${r.id} ${stateTag(r.state, style)}`)
   // Only what can be decided now is named; rows behind an open prerequisite are a count.
   const { now, later } = waitingOn(t)
+  const lead = style === 'modern' ? `${g.state.OPERATOR} ` : 'waiting on you: '
   const you = now.length > 0
-    ? `waiting on you: ${now.map(w => w.row.id).join(' ')}${later.length > 0 ? ` (+${later.length} later)` : ''}`
-    : later.length > 0 ? `waiting on you later: ${later.length}` : ''
+    ? `${lead}${now.map(w => w.row.id).join(' ')}${later.length > 0 ? ` (+${later.length} later)` : ''}`
+    : later.length > 0 ? (style === 'modern' ? `${g.later}${later.length} later` : `waiting on you later: ${later.length}`) : ''
   return [
     ...(hot.length > 0 ? [hot.join(', ')] : []),
     ...(you !== '' ? [you] : []),
     ...(t.error !== '' ? ['script error'] : []),
-  ].join(' | ')
+  ].join(g.sep)
 }
 
-function trackerSummary(t: Tracker): string {
+function trackerSummary(t: Tracker, style: Style): string {
   const o = overall(t)
   const parts = trackStats(t).map(p => `${p.key} ${p.done}/${p.total}`)
-  const tail = summaryTail(t)
-  return [`${t.name} ${o.done}/${o.total} ${parts.join(' ')}`, ...(tail !== '' ? [tail] : [])].join(' | ')
+  const tail = summaryTail(t, style)
+  return [`${t.name} ${o.done}/${o.total} ${parts.join(' ')}`, ...(tail !== '' ? [tail] : [])].join(GLYPHS[style].sep)
 }
 
 // One tracker in the fewest words for a status bar: overall count, then only what is hot or
-// waits on the operator ("cve-rollout 3/64 M3 FAILED, you: D4 D5"); the per-track figures stay in
-// the pane and in the pinned form.
-function compactSummary(t: Tracker): string {
+// waits on the operator; the per-track figures stay in the pane and in the pinned form.
+//   ascii:  "db-upgrade 3/64 M3 FAILED, you: D4 D5 (+2 later)" / "fleet 27/40 3 BLOCKED, you: 8"
+//   modern: the same with icons for the states and for "you".
+function compactSummary(t: Tracker, style: Style): string {
+  const g = GLYPHS[style]
   const o = overall(t)
   const hot = t.rows.filter(r => ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN'].includes(r.state))
-  // Few hot rows are named; more are counted per state ("3 BLOCKED").
+  // Few hot rows are named; more are counted per state.
   const hotText = hot.length <= 2
-    ? hot.map(r => `${r.id} ${r.state}`)
-    : [...new Set(hot.map(r => r.state))].map(st => `${hot.filter(r => r.state === st).length} ${st}`)
+    ? hot.map(r => `${r.id} ${stateTag(r.state, style)}`)
+    : [...new Set(hot.map(r => r.state))].map(st => {
+      const n = hot.filter(r => r.state === st).length
+      return style === 'modern' ? `${stateTag(st, style)} ${n}` : `${n} ${st}`
+    })
   const { now, later } = waitingOn(t)
+  const lead = style === 'modern' ? `${g.state.OPERATOR} ` : 'you: '
   const laterText = later.length > 0 ? ` (+${later.length} later)` : ''
   const you = now.length > 0
-    ? `you: ${now.length <= STATUS_MAX_IDS ? now.map(w => w.row.id).join(' ') : now.length}${laterText}`
-    : later.length > 0 ? `you later: ${later.length}` : ''
+    ? `${lead}${now.length <= STATUS_MAX_IDS ? now.map(w => w.row.id).join(' ') : now.length}${laterText}`
+    : later.length > 0 ? (style === 'modern' ? `${g.later}${later.length} later` : `you later: ${later.length}`) : ''
   const tail = [...hotText, ...(you !== '' ? [you] : []), ...(t.error !== '' ? ['script error'] : [])].join(', ')
   return [`${t.name} ${o.done}/${o.total}`, ...(tail !== '' ? [tail] : [])].join(' ')
 }
 
 // The status bar line: with a pin, that tracker in full and the others as a count; without
-// one, every open tracker compactly. Trackers are separated by " | ".
-function statusLine(trackers: Tracker[], stamp: string, pin: string): string {
+// one, every open tracker compactly.
+function statusLine(trackers: Tracker[], stamp: string, pin: string, style: Style): string {
+  const sep = GLYPHS[style].sep
   const active = trackers.filter(t => !t.isClosed)
   const mine = trackers.find(t => t.path === pin)
   if (mine !== undefined) {
     const others = active.filter(t => t !== mine).length
     return [
       `ckpt ${stamp}`,
-      mine.isClosed ? `${mine.name} closed` : trackerSummary(mine),
+      mine.isClosed ? `${mine.name} closed` : trackerSummary(mine, style),
       ...(others > 0 ? [`+${others} open`] : []),
-    ].join(' | ')
+    ].join(sep)
   }
-  if (active.length === 0) return `ckpt ${stamp} | no open tracker`
-  return [`ckpt ${stamp}`, ...active.map(compactSummary)].join(' | ')
+  if (active.length === 0) return `ckpt ${stamp}${sep}no open tracker`
+  return [`ckpt ${stamp}`, ...active.map(t => compactSummary(t, style))].join(sep)
 }
 
 // The cache dir, 0700, with its own .gitignore ("*"): script output and status lines may name
@@ -581,7 +639,7 @@ async function refresh($: EngineInterface, force = false): Promise<void> {
   await update($, snapshot, () => ({ trackers, retired, checkedAt: stamp, isRunning: false, error }))
   const line = error
     ? `ckpt ${stamp} | error: ${error.slice(0, 60)}`
-    : paths.length === 0 ? '' : statusLine(trackers, stamp, pin)
+    : paths.length === 0 ? '' : statusLine(trackers, stamp, pin, await read($, styleAtom))
   await writeStatus($, cwd, line)
   if (changed.length > 0) void $.ui.toast(changed.join(', '))
 }
@@ -590,8 +648,11 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'checkpoints',
-      description: 'Open the checkpoint pane and refresh it; /checkpoints <slug> pins a tracker to this session, /checkpoints off unpins',
+      description: 'Open the checkpoint pane and refresh it; /checkpoints <slug> pins a tracker to this session, /checkpoints off unpins, /checkpoints ascii or icons sets the style',
     })
+    // The stored style, if any, before the first status line is written.
+    const stored = await $.store.get(STYLE_KEY).catch(() => undefined)
+    if (stored === 'ascii' || stored === 'modern') await update($, styleAtom, () => stored)
     void refresh($)
     $.clock.every(EVERY_MS, () => void refresh($))
     return next(e)
@@ -600,7 +661,12 @@ export const register: Register = on => {
   on('command.run', { command: 'checkpoints' }, async ($, e) => {
     const arg = (e.args ?? '').trim()
     let pinText = ''
-    if (arg === 'off' || arg === '-') {
+    if (arg === 'ascii' || arg === 'icons' || arg === 'modern') {
+      const next: Style = arg === 'ascii' ? 'ascii' : 'modern'
+      await update($, styleAtom, () => next)
+      await $.store.set(STYLE_KEY, next).catch(() => undefined)
+      pinText = `Style: ${next} (kept for new sessions). `
+    } else if (arg === 'off' || arg === '-') {
       await update($, pinned, () => '')
       pinText = 'Unpinned; the status line shows every open tracker. '
     } else if (arg !== '') {
@@ -638,6 +704,20 @@ export const register: Register = on => {
     const toggled = await read($, toggledPaths)
     const withDone = await read($, showDone)
     const isOverview = await read($, overview)
+    const style = await read($, styleAtom)
+    const g = GLYPHS[style]
+    // Sections fold on a click on their heading; `sectionMark` is the marker before it.
+    const foldedKeys = await read($, foldedSections)
+    const isFolded = (key: string) => foldedKeys.includes(key)
+    const fold = (key: string) =>
+      void update($, foldedSections, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+    const sectionMark = (key: string) => (isFolded(key) ? g.folded : g.open)
+    const setStyle = async () => {
+      const next: Style = style === 'modern' ? 'ascii' : 'modern'
+      await update($, styleAtom, () => next)
+      await $.store.set(STYLE_KEY, next).catch(() => undefined)
+      await writeStatus($, await $.session.cwd(), statusLine(s.trackers, s.checkedAt, pin, next))
+    }
     const isBrief = (t: Tracker) =>
       (t.isClosed || (hasPin ? only && t.path !== pin : isOverview)) !== toggled.includes(t.path)
     // What waits on the operator: counted across every open tracker, listed (decidable rows
@@ -665,24 +745,24 @@ export const register: Register = on => {
       const next = path === pin ? '' : path
       await update($, pinned, () => next)
       await update($, toggledPaths, () => [])
-      await writeStatus($, await $.session.cwd(), statusLine(s.trackers, s.checkedAt, next))
+      await writeStatus($, await $.session.cwd(), statusLine(s.trackers, s.checkedAt, next, style))
     }
     const pinButton = (t: Tracker) => (
       <Button key={`p:${t.path}`} plain dimColor={t.path !== pin} onPress={() => void setPin(t.path)}>
-        {t.path === pin ? '* ' : 'pin '}
+        {t.path === pin ? g.pinOn : g.pinOff}
       </Button>
     )
     // Overall count + bar, then one coloured figure per track: " 17/24 [#######...] A 10/11 B 3/9"
     const progress = (t: Tracker) => {
       const o = overall(t)
       return [
-        <Text color={statColor(o)}>{` ${o.done}/${o.total} ${bar(o)}`}</Text>,
+        <Text color={statColor(o)}>{` ${o.done}/${o.total} ${bar(o, style)}`}</Text>,
         ...trackStats(t).map(p => <Text color={statColor(p)}>{` ${p.key} ${p.done}/${p.total}`}</Text>),
       ]
     }
     return (
       <Box flexDirection="column">
-        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / o / q / p or Enter on a title</Text>
+        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / o / i / q / p; Enter on a title or a heading folds it</Text>
         <Box flexDirection="row">
           <Text dimColor wrap="truncate-end">
             {s.isRunning
@@ -706,6 +786,8 @@ export const register: Register = on => {
             hotkey="d"
             onPress={() => void update($, showDone, v => !v)}
           />
+          <Text> </Text>
+          <Button key="style" label={style === 'modern' ? 'Style: ASCII' : 'Style: icons'} hotkey="i" onPress={() => void setStyle()} />
           <Text> </Text>
           <Button key="close" label="Close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })} />
           {!hasPin && <Text> </Text>}
@@ -746,8 +828,12 @@ export const register: Register = on => {
         )}
         {(youNow.length > 0 || youLater.length > 0) && (
           <Box key="you" flexDirection="column" marginTop={1}>
-            <Text bold color="permission">{`Waiting on you now (${youNow.length})`}</Text>
-            {youNow.map(w => (
+            <Button key="h:you" plain onPress={() => fold('you')}>
+              <Text bold color="permission">
+                {`${sectionMark('you')}Waiting on you now (${youNow.length})${isFolded('you') && youLater.length > 0 ? `, later (${youLater.length})` : ''}`}
+              </Text>
+            </Button>
+            {!isFolded('you') && youNow.map(w => (
               <Text wrap={wrap}>
                 <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
                 <Text color="permission">{w.row.id.padEnd(4)}</Text>
@@ -755,10 +841,10 @@ export const register: Register = on => {
                 {w.row.title}
               </Text>
             ))}
-            {youLater.length > 0 && (
-              <Text dimColor>{`later (${youLater.length}) - a prerequisite is still open`}</Text>
+            {!isFolded('you') && youLater.length > 0 && (
+              <Text dimColor>{`${g.later}later (${youLater.length}) - a prerequisite is still open`}</Text>
             )}
-            {youLater.map(w => (
+            {!isFolded('you') && youLater.map(w => (
               <Text dimColor wrap={wrap}>
                 {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}${w.row.title} (after ${w.after.join(' ')})`}
               </Text>
@@ -769,9 +855,9 @@ export const register: Register = on => {
           <Box key={`b:${t.path}`} flexDirection="row">
             {pinButton(t)}
             <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-              {t.isClosed ? `${t.name} (closed)` : t.name}
+              {`${g.folded}${t.name}${t.isClosed ? ' (closed)' : ''}`}
               {!t.isClosed && progress(t)}
-              <Text dimColor>{summaryTail(t) !== '' ? ` | ${summaryTail(t)}` : ''}</Text>
+              <Text dimColor>{summaryTail(t, style) !== '' ? `${g.sep}${summaryTail(t, style)}` : ''}</Text>
             </Button>
           </Box>
         ) : (
@@ -779,7 +865,7 @@ export const register: Register = on => {
             <Box flexDirection="row">
               {pinButton(t)}
               <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-                {`${t.name}${t.path === pin ? ' (pinned)' : ''}${t.isClosed ? ' (closed)' : ''}`}
+                {`${g.open}${t.name}${t.path === pin ? ' (pinned)' : ''}${t.isClosed ? ' (closed)' : ''}`}
                 {progress(t)}
               </Button>
             </Box>
@@ -789,22 +875,24 @@ export const register: Register = on => {
             </Text>
             {t.error !== '' && <Text color="error" wrap={wrap}>{t.error}</Text>}
             {
-              [...new Set(t.rows.map(r => groupOf(r.id)))].map(g => (
+              [...new Set(t.rows.map(r => groupOf(r.id)))].map(k => (
                 <Box flexDirection="column" marginTop={1}>
-                  <Text bold>
-                    {t.groups.find(x => x.key === g)?.title ?? g}
-                    {trackStats(t).filter(p => p.key === g).map(p => (
-                      <Text color={statColor(p)}>{`  ${p.done}/${p.total} ${bar(p)}`}</Text>
-                    ))}
-                  </Text>
-                  {t.rows
-                    .filter(r => groupOf(r.id) === g && (withDone || !isDoneState(r.state)))
+                  <Button key={`h:${t.path}#${k}`} plain onPress={() => fold(`${t.path}#${k}`)}>
+                    <Text bold>
+                      {`${sectionMark(`${t.path}#${k}`)}${t.groups.find(x => x.key === k)?.title ?? k}`}
+                      {trackStats(t).filter(p => p.key === k).map(p => (
+                        <Text color={statColor(p)}>{`  ${p.done}/${p.total} ${bar(p, style)}`}</Text>
+                      ))}
+                    </Text>
+                  </Button>
+                  {!isFolded(`${t.path}#${k}`) && t.rows
+                    .filter(r => groupOf(r.id) === k && (withDone || !isDoneState(r.state)))
                     .map(r => {
                       // OPERATOR behind an open prerequisite: dimmed, with what it waits for.
                       const after = r.state === 'OPERATOR' ? blockers(t, r) : []
                       return (
                         <Text wrap={wrap}>
-                          <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{r.state.padEnd(9)}</Text>
+                          <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
                           {r.id.padEnd(4)}
                           {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
                           {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
@@ -816,14 +904,14 @@ export const register: Register = on => {
                         </Text>
                       )
                     })}
-                  {!withDone && (() => {
+                  {!withDone && !isFolded(`${t.path}#${k}`) && (() => {
                     // Folded DONE/OK rows of a track that still has open ones: count and IDs.
-                    const rows = t.rows.filter(r => groupOf(r.id) === g)
+                    const rows = t.rows.filter(r => groupOf(r.id) === k)
                     const done = rows.filter(r => isDoneState(r.state))
                     if (done.length === 0 || done.length === rows.length) return null
                     return (
                       <Text dimColor wrap="truncate-end">
-                        {`+ ${done.length} done: ${done.map(r => r.id).join(' ')}`}
+                        {`${g.more}${done.length} done: ${done.map(r => r.id).join(' ')}`}
                       </Text>
                     )
                   })()}
@@ -831,8 +919,10 @@ export const register: Register = on => {
               ))}
             {(t.log ?? []).length > 0 && (
               <Box flexDirection="column" marginTop={1}>
-                <Text dimColor>recent</Text>
-                {(t.log ?? []).map(l => (
+                <Button key={`h:${t.path}#recent`} plain onPress={() => fold(`${t.path}#recent`)}>
+                  <Text dimColor>{`${sectionMark(`${t.path}#recent`)}recent`}</Text>
+                </Button>
+                {!isFolded(`${t.path}#recent`) && (t.log ?? []).map(l => (
                   <Text dimColor wrap="truncate-end">
                     {`${new Date(l.atMs).toISOString().slice(5, 16).replace('T', ' ')}  ${l.text}`}
                   </Text>

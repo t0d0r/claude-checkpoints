@@ -10,6 +10,9 @@ export type Row = {
   sinceMs: number
 }
 
+// How the pane and the status line are drawn.
+export type Style = 'modern' | 'ascii'
+
 export type LogEntry = {
   atMs: number
   text: string
@@ -58,6 +61,10 @@ declare module 'claude-code' {
       toggled: string[]
       // Without a pin: one title line per tracker (true) or every tracker in full (false).
       overview: boolean
+      // Section keys folded against their default: 'you', '<path>#<track>', '<path>#recent'.
+      folded: string[]
+      // Icons and block bars ('modern', the default) or plain ASCII ('ascii').
+      style: Style
       // DONE/OK rows listed in full (true) or folded into one line per track (false).
       showDone: boolean
     }
