@@ -937,7 +937,10 @@ export const register: Register = on => {
                       // OPERATOR behind an open prerequisite: dimmed, with what it waits for.
                       const after = r.state === 'OPERATOR' ? blockers(t, r) : []
                       const isOpen = expanded.includes(rowKey(t, r))
+                      // A Button holds strings and Text only, so the file link of an opened row
+                      // is a line of its own under the row, not a part of it.
                       return (
+                        <Box flexDirection="column">
                         <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
                         <Text wrap={isOpen ? 'wrap' : wrap}>
                           <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
@@ -949,14 +952,15 @@ export const register: Register = on => {
                           {r.title}
                           {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
                           <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
-                          {isOpen && r.line > 0 && (
-                            <Text dimColor>
-                              {'  '}
-                              <Link href={`file://${encodeURI(`${s.cwd ?? ''}/${t.path}`)}`} label={`${t.path}:${r.line}`} />
-                            </Text>
-                          )}
                         </Text>
                         </Button>
+                        {isOpen && r.line > 0 && (
+                          <Text dimColor wrap="truncate-end">
+                            {'      '}
+                            <Link href={`file://${encodeURI(`${s.cwd ?? ''}/${t.path}`)}`} label={`${t.path}:${r.line}`} />
+                          </Text>
+                        )}
+                        </Box>
                       )
                     })}
                   {!withDone && filter === 'all' && !isFolded(`${t.path}#${k}`) && (() => {

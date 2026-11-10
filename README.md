@@ -128,10 +128,13 @@ A tracker is named by the slug after `checkpoints-` in its file name; a header l
 
 ```
 claude plugin validate ~/work/AI/claude-mods/checkpoints
+claude plugin test ~/work/AI/claude-mods/checkpoints
 tsc -p ~/work/AI/claude-mods/checkpoints
 ```
 
-`tsc` needs the types the engine lays in `.claude-plugin/types/` once it has loaded the mod.
+`plugin test` mounts the pane in the engine itself (`tests/pane.test.tsx`): a tree the engine
+refuses fails there instead of leaving an empty pane. Run it after every change to the
+drawing. `tsc` needs the types the engine lays in `.claude-plugin/types/` once it has loaded the mod.
 
 ## Security note
 
