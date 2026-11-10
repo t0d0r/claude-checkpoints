@@ -1,5 +1,9 @@
 # checkpoints (Claude Code mod)
 
+[![Security checks](https://github.com/t0d0r/claude-checkpoints/actions/workflows/security.yml/badge.svg)](https://github.com/t0d0r/claude-checkpoints/actions/workflows/security.yml)
+[![CodeQL](https://github.com/t0d0r/claude-checkpoints/actions/workflows/codeql.yml/badge.svg)](https://github.com/t0d0r/claude-checkpoints/actions/workflows/codeql.yml)
+[![License: BSD-2-Clause](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
+
 Shows every checkpoint tracker of the current project (`*/YYYY-MM-DD-HHMM-checkpoints-*.md`)
 in a pane opened with `/checkpoints` and, optionally, in the status line, merged with the live
 lines of the tracker's committed, read-only `progress-check` script (only from
@@ -149,6 +153,12 @@ drawing. `tsc` needs the types the engine lays in `.claude-plugin/types/` once i
 BSD 2-Clause, see `LICENSE`.
 
 ## Security note
+
+- What the badges mean: on every push, on every pull request and once a week GitHub Actions
+  runs a secret scan of the whole history (gitleaks), ShellCheck on the status line helper and
+  a CodeQL analysis of the TypeScript. A green badge says those checks passed on `main`. It is
+  not a guarantee that the mod is secure: nobody has audited it, and the checks do not judge
+  what a project's own `progress-check` scripts do.
 
 - Progress-check scripts run unattended, every 15 minutes, with the user's own credentials
   (ssh keys included). The "tracked by git and identical to HEAD" gate is the only guardrail:
