@@ -1,0 +1,5 @@
+{
+  "name": "checkpoints",
+  "owner": { "name": "Todor Dragnev" },
+  "plugins": [{ "name": "checkpoints", "source": "./" }]
+}
