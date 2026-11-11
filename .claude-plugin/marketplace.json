@@ -1,5 +1,6 @@
 {
   "name": "checkpoints",
-  "owner": { "name": "Todor Dragnev" },
+  "description": "The checkpoints mod: a pane and status line for multi-step work trackers in a project",
+  "owner": { "name": "Todor Dragnev", "url": "https://github.com/t0d0r" },
   "plugins": [{ "name": "checkpoints", "source": "./" }]
 }

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Source of .claude-plugin/icon.png: rsvg-convert -w 1024 -h 1024 assets/icon.svg -->
+  <rect width="1024" height="1024" rx="208" fill="#101826"/>
+
+  <!-- row 1: done -->
+  <circle cx="252" cy="268" r="84" fill="#22c55e"/>
+  <path d="M212 270 l30 30 l54 -62" fill="none" stroke="#101826" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="396" y="236" width="460" height="64" rx="32" fill="#8b98ad"/>
+
+  <!-- row 2: done -->
+  <circle cx="252" cy="512" r="84" fill="#22c55e"/>
+  <path d="M212 514 l30 30 l54 -62" fill="none" stroke="#101826" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="396" y="480" width="360" height="64" rx="32" fill="#8b98ad"/>
+
+  <!-- row 3: waiting on the operator -->
+  <rect x="186" y="690" width="132" height="132" rx="22" fill="#f5a524" transform="rotate(45 252 756)"/>
+  <rect x="396" y="724" width="460" height="64" rx="32" fill="#e6ebf2"/>
+</svg>
