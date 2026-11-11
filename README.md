@@ -1,3 +1,5 @@
+<img src=".claude-plugin/icon.png" alt="checkpoints icon" width="96" align="right">
+
 # checkpoints (Claude Code mod)
 
 [![Security checks](https://github.com/t0d0r/claude-checkpoints/actions/workflows/security.yml/badge.svg)](https://github.com/t0d0r/claude-checkpoints/actions/workflows/security.yml)
