@@ -728,8 +728,13 @@ export const register: Register = on => {
     const foldedKeys = await read($, foldedSections)
     // The waiting block starts folded while every tracker is a title line (the overview stays
     // an overview) and open otherwise; every other section starts open.
-    const startsFolded = (key: string) => key === 'you' && ordered.every(isBrief)
-    const isFolded = (key: string) => startsFolded(key) !== foldedKeys.includes(key)
+    // A press on its heading stores the chosen state itself ('you:folded' / 'you:open'), not
+    // an inversion of the default: the default moves when a tracker is folded or opened, and
+    // an inversion would then flip a block the user had just set.
+    const isFolded = (key: string) =>
+      key !== 'you'
+        ? foldedKeys.includes(key)
+        : foldedKeys.includes('you:folded') || (!foldedKeys.includes('you:open') && ordered.every(isBrief))
     const filter = await read($, rowFilter)
     const expanded = await read($, expandedRows)
     const rowKey = (t: Tracker, r: Row) => `${t.path}#${r.id}`
@@ -749,8 +754,15 @@ export const register: Register = on => {
       await $.ui.scroll({ in: PANE, to: { key: `r:${key}` }, block: 'start' }).catch(() => undefined)
       await $.ui.focus({ requestId: PANE, key: `r:${key}` }).catch(() => undefined)
     }
-    const fold = (key: string) =>
-      void update($, foldedSections, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+    const fold = (key: string) => {
+      if (key !== 'you') {
+        void update($, foldedSections, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+        return
+      }
+      const next = isFolded('you') ? 'you:open' : 'you:folded'
+      // 'you' alone is the inversion mark of earlier versions; it is dropped here.
+      void update($, foldedSections, v => [...v.filter(k => k !== 'you' && !k.startsWith('you:')), next])
+    }
     const sectionMark = (key: string) => (isFolded(key) ? g.folded : g.open)
     const setStyle = async () => {
       const next: Style = style === 'modern' ? 'ascii' : 'modern'
@@ -880,24 +892,46 @@ export const register: Register = on => {
               </Text>
             </Button>
             {!isFolded('you') && youNow.map(w => (
+              wrapped ? (
+                <Box flexDirection="row">
+                  <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
+                    <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
+                    <Text color="permission">{w.row.id.padEnd(4)}</Text>
+                  </Button>
+                  <Text wrap="wrap">
+                    {ageCell(w.row.sinceMs)}
+                    {w.row.title}
+                  </Text>
+                </Box>
+              ) : (
               <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
-                <Text wrap={wrap}>
+                <Text wrap="truncate-end">
                   <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
                   <Text color="permission">{w.row.id.padEnd(4)}</Text>
                   {ageCell(w.row.sinceMs)}
                   {w.row.title}
                 </Text>
               </Button>
+              )
             ))}
             {!isFolded('you') && youLater.length > 0 && (
               <Text dimColor>{`${g.later}later (${youLater.length}) - a prerequisite is still open`}</Text>
             )}
             {!isFolded('you') && youLater.map(w => (
+              wrapped ? (
+                <Box flexDirection="row">
+                  <Button key={`y:${rowKey(w.t, w.row)}`} plain dimColor onPress={() => void goTo(w.t, w.row)}>
+                    {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}`}
+                  </Button>
+                  <Text dimColor wrap="wrap">{`${w.row.title} (after ${w.after.join(' ')})`}</Text>
+                </Box>
+              ) : (
               <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
-                <Text dimColor wrap={wrap}>
+                <Text dimColor wrap="truncate-end">
                   {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}${w.row.title} (after ${w.after.join(' ')})`}
                 </Text>
               </Button>
+              )
             ))}
           </Box>
         )}
@@ -952,8 +986,27 @@ export const register: Register = on => {
                       // is a line of its own under the row, not a part of it.
                       return (
                         <Box flexDirection="column">
+                        {/* A Button's label stays on one line, so a row that wraps (the Wrap
+                            switch, or a row opened with Enter) keeps only its state and ID in
+                            the Button and draws the text beside it, where it can wrap. */}
+                        {isOpen || wrapped ? (
+                          <Box flexDirection="row">
+                            <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
+                              <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
+                              {r.id.padEnd(4)}
+                            </Button>
+                            <Text wrap="wrap">
+                              {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
+                                <Text color={isStale(r.sinceMs, clock) ? 'warning' : 'inactive'}>{`[${age(r.sinceMs, clock)}] `}</Text>
+                              )}
+                              {r.title}
+                              {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
+                              <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
+                            </Text>
+                          </Box>
+                        ) : (
                         <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
-                        <Text wrap={isOpen ? 'wrap' : wrap}>
+                        <Text wrap="truncate-end">
                           <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
                           {r.id.padEnd(4)}
                           {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
@@ -965,6 +1018,7 @@ export const register: Register = on => {
                           <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
                         </Text>
                         </Button>
+                        )}
                         {isOpen && r.line > 0 && (
                           <Text dimColor wrap="truncate-end">
                             {'      '}
@@ -975,10 +1029,11 @@ export const register: Register = on => {
                       )
                     })}
                   {!withDone && filter === 'all' && !isFolded(`${t.path}#${k}`) && (() => {
-                    // Folded DONE/OK rows of a track that still has open ones: count and IDs.
+                    // Folded DONE/OK rows of a track, also of one that is complete: count and
+                    // IDs, so a hidden row is always named and "Done: show" has a visible effect.
                     const rows = t.rows.filter(r => groupOf(r.id) === k)
-                    const done = rows.filter(r => isDoneState(r.state))
-                    if (done.length === 0 || done.length === rows.length) return null
+                    const done = rows.filter(r => isDoneState(r.state) && !expanded.includes(rowKey(t, r)))
+                    if (done.length === 0) return null
                     return (
                       <Text dimColor wrap="truncate-end">
                         {`${g.more}${done.length} done: ${done.map(r => r.id).join(' ')}`}

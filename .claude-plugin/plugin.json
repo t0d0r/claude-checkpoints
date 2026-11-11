@@ -1,6 +1,6 @@
 {
   "name": "checkpoints",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "description": "Pane and status line for every *-checkpoints-*.md tracker of the current project, merged with its committed read-only progress-check script",
   "author": { "name": "t0d0r", "url": "https://github.com/t0d0r" },
   "homepage": "https://github.com/t0d0r/claude-checkpoints",

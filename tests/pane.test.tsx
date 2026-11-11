@@ -92,4 +92,42 @@ for (const style of ['modern', 'ascii'] as const) {
     expect((await ui.find({ type: 'Button', key: `r:${TRACKER.path}#B1` }))).toBeDefined()
     await ui.unmount()
   })
+  // The waiting block keeps the state its heading was pressed into, whatever the trackers do:
+  // folding the last open tracker changes the block's default, not the user's choice.
+  for (const [label, toggled] of [['open', [TRACKER.path]], ['folded', []]] as const) {
+    test(`a folded waiting block stays folded with the tracker ${label} (${style})`, async ($, on) => {
+      seed(on, { snapshot: SNAPSHOT, style, toggled, folded: ['you:folded'] })
+      const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+      expect((await ui.find({ type: 'Button', key: 'h:you' }))).toBeDefined()
+      expect((await ui.find({ type: 'Button', key: `y:${TRACKER.path}#A2` }))).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+
+  test(`an opened waiting block stays open when every tracker is a title (${style})`, async ($, on) => {
+    seed(on, { snapshot: SNAPSHOT, style, folded: ['you:open'] })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await ui.find({ type: 'Button', key: `y:${TRACKER.path}#A2` }))).toBeDefined()
+    await ui.unmount()
+  })
+
+  // Done rows are hidden by default and named in one line, also in a track that is complete.
+  for (const showDone of [false, true]) {
+    test(`done rows ${showDone ? 'show on request' : 'fold into a summary line'} (${style})`, async ($, on) => {
+      const done = { ...TRACKER, rows: [row('A1', 'DONE'), row('A2', 'DONE'), row('B1', 'BLOCKED')] }
+      const snap = { shape: 'snapshot-7', value: { ...SNAPSHOT_VALUE, trackers: [done] } }
+      seed(on, { snapshot: snap, style, toggled: [TRACKER.path], showDone })
+      const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+      const a1 = await ui.find({ type: 'Button', key: `r:${TRACKER.path}#A1` })
+      const summary = await ui.find({ type: 'Text', text: /2 done: A1 A2/ })
+      if (showDone) {
+        expect(a1).toBeDefined()
+        expect(summary).toBeUndefined()
+      } else {
+        expect(a1).toBeUndefined()
+        expect(summary).toBeDefined()
+      }
+      await ui.unmount()
+    })
+  }
 }
