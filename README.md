@@ -14,6 +14,8 @@ trackers and scripts ships with the mod as the skill `skills/checkpoint-tracker/
 
 A project without a tracker sees nothing: no cache folder, no status line.
 
+![The checkpoints pane: waiting rows on top, one tracker opened, two as title lines](assets/pane.png)
+
 ## Install
 
 From the prompt of a terminal session:
@@ -46,69 +48,35 @@ code runs in every project.
 
 ## Pane
 
-- `/checkpoints` opens it (half the terminal's width when docked - the engine caps a dock at
-  45% - or 24 rows inline) and refreshes; `/checkpoints <slug>` pins one tracker to this
-  session; `/checkpoints off` unpins.
-- Two styles. `modern` (the default): an icon per state (check mark = done, triangle =
-  running, circle = pending, filled diamond = waiting on you, filled square = blocked, cross =
-  failed), block-character bars, box-drawing separators, star pin markers, fold triangles.
-  `ascii`: state words, `[###...]` bars, `|`, `pin`/`*`, `[+]`/`[-]`. The `i: Style icons` /
-  `i: Style ascii` switch, or `/checkpoints ascii` / `/checkpoints icons`, changes it; the
-  choice is stored for the user and applies to new sessions and to the status line. The icons
-  are single-width characters of common Unicode blocks - no emoji and no patched font needed.
-- Every section folds: a click (or Enter) on a tracker title, on the "Waiting on you"
-  heading, on a track heading or on "recent" folds or opens it, for this session.
-- Rows open one by one: a click (or Enter) on a row shows its whole title and note, wrapped,
-  and a link `<tracker file>:<line>` to where it stands in the file (a `file://` link: what
-  opens it is the terminal's choice, and it carries no line number). `w: Text one line` /
-  `w: Text wrapped` cuts every row, title line and summary to one line or wraps them under
-  themselves; one line is the default.
-- Row filter: `f: Rows all` / `Rows you` / `Rows hot` cycles between every row, only those
-  waiting on you, and only blocked, failed, running or unknown ones. While a filter is on, a
-  yellow line under the switches says so, and each tracker names the tracks the filter
-  leaves empty in one line (`Rows you leaves out: A 3/3 C 1/4`) - a track is never dropped
-  without a word.
-- Go to a waiting row: a click (or Enter) on a row of the "Waiting on you" block opens its
-  tracker and track, opens the row and moves the pane and the focus to it. The block starts
-  folded while every tracker is a title line; its heading carries the counts. Once its
-  heading was pressed it keeps that state, whatever is folded or opened below it.
-- Tracker titles stand out: bold and coloured, an opened tracker in capitals; a rule as wide
-  as the pane stands above every title, folded or open.
-- Overview first: without a pin the pane opens as one title line per tracker
-  (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
-  to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
-  it; `o: Trackers titles` / `Trackers full` switches every tracker at once. On a title line
-  what is hot or waits on you comes right after the count and the bar, before the per-track
-  figures, so a line cut to the pane's width keeps it; more than four hot rows are counted
-  per state instead of listed.
-- "Waiting on you" block on top: every OPERATOR row of every open tracker in one list. Rows
-  that can be decided now come first; a row whose "depends on" cell names a checkpoint that is
-  not DONE/OK yet is listed under "later" with `(after <ids>)` and is dimmed in its track too.
-  Dependencies are the checkpoint IDs in the "depends on" column (`B4 + approval`, `A4 + D4`,
-  `C1-C3`); free text names none, and a table without that column has none.
-- Age: a waiting, blocked or failed row carries how long ago the progress log last named its
-  ID (`4d`, `today`, `-` when the log never names it), yellow from 7 days. It is the log's
-  last mention, not a measured time in the state - a tracker whose log names the IDs it
-  changes gives honest figures.
-- Each track heading carries its own count and bar; under a tracker, "recent" lists the three
-  newest progress-log rows; the pane's last line names the finished trackers it leaves out.
-- DONE/OK rows are listed by default. `d: Done shown` / `Done hidden` switches: hidden, a
-  track shows its open rows plus one `+ N done: <ids>` line and a complete track is a single
-  heading line. Under a row filter it reads `Done n/a`, since a filter never lists done rows.
-- The switches stand in one row that wraps in a narrow pane, each as `key: name value` with
-  the value in force now (`r: Refresh  w: Text one line  d: Done hidden  f: Rows all ...`); a
-  press, or the key while the pane holds the focus, moves to the next value. `q` closes.
-- The pin is spelled out: the pinned tracker's marker reads `PINNED` in bold yellow (a star
-  in `modern`, `[*]` in `ascii`), the others read `pin`, and a line under the buttons names
-  the pinned tracker and how to unpin.
-- With a pin the pane still opens as an overview: every tracker one title line, the pinned
-  one first and marked. `p: Others titles` / `Others full` switches the other trackers; a
-  click on a title opens or folds that tracker, the pinned one included.
-- Refresh: at session start, every 15 minutes, on `/checkpoints` and on Refresh.
-- Finished trackers go away on their own: a tracker that is closed, or whose counted rows are
-  all DONE/OK with no script error, stays for two days after its last change (the newest
-  `| YYYY-MM-DD HH:MM |` progress-log row, or the file's mtime if the log is empty), then is
-  left out. `/checkpoints <slug>` pins it and brings it back.
+- `/checkpoints` opens and refreshes the pane. `/checkpoints <slug>` pins one tracker to the
+  session, `/checkpoints off` unpins.
+- It opens as an overview: one title line per tracker with its count, bar, hot rows and
+  per-track figures, the pinned one first. A click (or Enter) on a title, a track heading or
+  a row opens or folds it; an opened row shows its full text and a link to its line in the
+  tracker file.
+- "Waiting on you" on top: every OPERATOR row of every tracker. A row whose "depends on" cell
+  names an unfinished checkpoint (`B4 + approval`, `C1-C3`) goes under "later" with
+  `(after <ids>)`. A click on a row jumps to it.
+- Waiting, blocked and failed rows show how long ago the progress log last named them (`4d`,
+  `today`, `-`), yellow from 7 days.
+- Switches, by click or by key while the pane has the focus:
+
+  | key | switch   | values                                                          |
+  |-----|----------|-----------------------------------------------------------------|
+  | `r` | Refresh  |                                                                 |
+  | `i` | Style    | `icons` (default) / `ascii`; kept for new sessions and the status line |
+  | `w` | Text     | one line (default) / wrapped                                    |
+  | `d` | Done     | shown (default) / hidden - a track then shows `+ N done: <ids>` |
+  | `f` | Rows     | all / you (waiting on you) / hot (blocked, failed, running)     |
+  | `o` | Trackers | titles / full                                                   |
+  | `p` | Others   | titles / full, with a pin                                       |
+  | `q` | close    |                                                                 |
+
+  `/checkpoints icons` and `/checkpoints ascii` set the style too. The icons are plain
+  single-width Unicode: no emoji, no patched font.
+- Refresh: at session start, every 15 minutes, on `/checkpoints` and on `r`.
+- A finished tracker (closed, or every row DONE/OK) hides two days after its last change.
+  `/checkpoints <slug>` brings it back.
 
 ## Status line (optional)
 
@@ -162,24 +130,3 @@ drawing. `tsc` needs the types the engine lays in `.claude-plugin/types/` once i
 ## License
 
 BSD 2-Clause, see `LICENSE`.
-
-## Security note
-
-- What the badges mean: on every push, on every pull request and once a week GitHub Actions
-  runs a secret scan of the whole history (gitleaks), ShellCheck on the status line helper and
-  a CodeQL analysis of the TypeScript. A green badge says those checks passed on `main`. It is
-  not a guarantee that the mod is secure: nobody has audited it, and the checks do not judge
-  what a project's own `progress-check` scripts do.
-- The workflow actions are pinned to full commit SHAs (the version stands in a comment
-  beside each); update a pin only after reading what changed upstream.
-
-- Progress-check scripts run unattended, every 15 minutes, with the user's own credentials
-  (ssh keys included). The "tracked by git and identical to HEAD" gate is the only guardrail:
-  never weaken it, keep the scripts read-only, and review any such script that arrives by a
-  merge or a pull before it lands on the checked-out branch.
-- Installed at the user scope the mod loads in every project. It reads only tracker files and
-  `scripts/checkpoints/` of the project the session runs in.
-- The cache holds script output and status lines only (they may name hosts): 0700/0600,
-  ignored by its own `.gitignore`; never commit or share it.
-- An update of this repository changes the code in every project at once: read the diff before
-  pulling.
