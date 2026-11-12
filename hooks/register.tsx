@@ -71,7 +71,8 @@ const isWrapped = atom({ plugin: 'checkpoints', key: 'isWrapped' } as const, fal
 const expandedRows = atom({ plugin: 'checkpoints', key: 'expanded' } as const, [] as string[])
 
 // Which rows the tracks list: every one, only those waiting on the operator, or only the hot
-// ones (blocked, failed, running, unknown). A track without a matching row is left out.
+// ones (blocked, failed, running, unknown). A track without a matching row is not drawn, but
+// named in one line per tracker ("Rows you leaves out: A 3/3").
 const rowFilter = atom({ plugin: 'checkpoints', key: 'filter' } as const, 'all' as RowFilter)
 const FILTERS: RowFilter[] = ['all', 'you', 'hot']
 const HOT_STATES = ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN']
@@ -85,8 +86,10 @@ function passes(filter: RowFilter, state: string): boolean {
 // The tracker path this session follows; '' = none (status line shows every open tracker).
 const pinned = atom({ plugin: 'checkpoints', key: 'pinned' } as const, '')
 
-// With a pin: true = the pane shows only the pinned tracker in full and every other one as a
-// single title line with its summary; false = every tracker in full. No effect without a pin.
+// With a pin: true (the default) = every other tracker is a single title line with its
+// summary; false = every other tracker in full. The pinned tracker itself starts as a title
+// line too (first in the list, marked PINNED): the pane opens as an overview, and a press on
+// a title opens that tracker. No effect without a pin.
 const onlyPinned = atom({ plugin: 'checkpoints', key: 'onlyPinned' } as const, true)
 
 // Tracker paths whose title was clicked: each inverts its default (brief <-> full) for this
@@ -98,8 +101,9 @@ const toggledPaths = atom({ plugin: 'checkpoints', key: 'toggled' } as const, []
 // a click on a title opens that tracker. false = every tracker in full.
 const overview = atom({ plugin: 'checkpoints', key: 'overview' } as const, true)
 
-// Section keys the user folded or opened against their default: 'you' (the waiting block),
-// '<tracker path>#<track>' (one track) and '<tracker path>#recent'. Every section starts open.
+// Section keys the user folded: '<tracker path>#<track>' (one track) and
+// '<tracker path>#recent'; these start open. The waiting block has a moving default, so its
+// chosen state is stored as itself: 'you:folded' or 'you:open'.
 const foldedSections = atom({ plugin: 'checkpoints', key: 'folded' } as const, [] as string[])
 
 // How the pane and the status line are drawn: 'modern' (icons, block bars, box-drawing
@@ -146,8 +150,8 @@ function stateTag(state: string, style: Style): string {
   return GLYPHS[style].state[state] ?? state
 }
 
-// DONE/OK rows: folded into one line per track (false, the default) or listed in full (true).
-const showDone = atom({ plugin: 'checkpoints', key: 'showDone' } as const, false)
+// DONE/OK rows: listed in full (true, the default) or folded into one line per track (false).
+const showDone = atom({ plugin: 'checkpoints', key: 'showDone' } as const, true)
 
 type CacheEntry = { blob: string; at: number; exitCode: number; stdout: string; stderr: string }
 
@@ -381,9 +385,14 @@ function bar(s: { done: number; total: number }, style: Style): string {
 // The tail of a summary after the counts: hot rows, what waits on the operator, script error.
 function summaryTail(t: Tracker, style: Style): string {
   const g = GLYPHS[style]
-  const hot = t.rows
-    .filter(r => ['RUNNING', 'FAILED', 'FAIL', 'BLOCKED', 'UNKNOWN'].includes(r.state))
-    .map(r => `${r.id} ${stateTag(r.state, style)}`)
+  const hotRows = t.rows.filter(r => HOT_STATES.includes(r.state))
+  // Few hot rows are named; more are counted per state (57 UNKNOWN is a figure, not a list).
+  const hot = hotRows.length <= STATUS_MAX_IDS
+    ? hotRows.map(r => `${r.id} ${stateTag(r.state, style)}`)
+    : [...new Set(hotRows.map(r => r.state))].map(st => {
+      const n = hotRows.filter(r => r.state === st).length
+      return style === 'modern' ? `${stateTag(st, style)} ${n}` : `${n} ${st}`
+    })
   // Only what can be decided now is named; rows behind an open prerequisite are a count.
   const { now, later } = waitingOn(t)
   const lead = style === 'modern' ? `${g.state.OPERATOR} ` : 'waiting on you: '
@@ -771,7 +780,7 @@ export const register: Register = on => {
       await writeStatus($, await $.session.cwd(), statusLine(s.trackers, s.checkedAt, pin, next))
     }
     const isBrief = (t: Tracker) =>
-      (t.isClosed || (hasPin ? only && t.path !== pin : isOverview)) !== toggled.includes(t.path)
+      (t.isClosed || (hasPin ? only || t.path === pin : isOverview)) !== toggled.includes(t.path)
     // What waits on the operator, across every open tracker, decidable rows first. The block
     // is a way in: a press on one of its rows opens that row's tracker and track and moves
     // the pane to it.
@@ -813,48 +822,77 @@ export const register: Register = on => {
         ...trackStats(t).map(p => <Text color={statColor(p)}>{` ${p.key} ${p.done}/${p.total}`}</Text>),
       ]
     }
+    // A complete track while done rows are hidden: one heading line (its figure says it all),
+    // and consecutive ones stand without a blank line between them. "Done shown" opens them.
+    const isCompact = (t: Tracker, k: string) => {
+      const rows = t.rows.filter(r => groupOf(r.id) === k)
+      return !withDone && filter === 'all' && rows.length > 0
+        && rows.every(r => isDoneState(r.state) && !expanded.includes(rowKey(t, r)))
+    }
+    // A tracker's title line. The Button holds only the fold marker and the name: a Button's
+    // label always wraps and cannot be cut, so the figures and the summary are a Text beside
+    // it that follows the Text switch (cut to one line, or wrapped under itself).
+    const titleLine = (t: Tracker, brief: boolean) => {
+      const tail = brief ? summaryTail(t, style) : ''
+      return (
+        <Box flexDirection="row">
+          {pinButton(t)}
+          <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
+            <Text bold color={brief && t.isClosed ? 'inactive' : 'suggestion'}>
+              {`${brief ? g.folded : g.open}${brief ? t.name : t.name.toUpperCase()}${t.isClosed ? ' (closed)' : ''}`}
+            </Text>
+          </Button>
+          <Text wrap={wrap}>
+            {/* What is hot or waits comes before the per-track figures: in one-line mode the
+                end of the line is what gets cut. */}
+            {!(brief && t.isClosed) && progress(t)[0]}
+            <Text dimColor>{tail !== '' ? `${g.sep}${tail}` : ''}</Text>
+            {!(brief && t.isClosed) && tail !== '' && <Text dimColor>{g.sep.trimEnd()}</Text>}
+            {!(brief && t.isClosed) && progress(t).slice(1)}
+          </Text>
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column">
-        <Text dimColor wrap="truncate-end">focus me with ctrl+x tab, then r / w / d / f / o / i / q / p; Enter folds a title or heading, opens a row, follows a waiting row</Text>
-        <Box flexDirection="row">
-          <Text dimColor wrap="truncate-end">
-            {s.isRunning
-              ? 'checking...'
-              : s.checkedAt
-                ? `checked ${s.checkedAt}, every 15 min`
-                : 'not checked yet'}{' '}
-          </Text>
-          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, true)} />
-          <Text> </Text>
+        <Text dimColor wrap="truncate-end">ctrl+x tab focuses the pane; Enter folds a title or heading, opens a row, follows a waiting row</Text>
+        <Text dimColor wrap="truncate-end">
+          {s.isRunning
+            ? 'checking...'
+            : s.checkedAt
+              ? `checked ${s.checkedAt}, every 15 min`
+              : 'not checked yet'}
+        </Text>
+        {/* Every switch reads "key: name value", the value being what is in force now; a press
+            moves to the next value. The row wraps in a narrow pane instead of being cut. */}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          <Button key="refresh" plain label="Refresh" hotkey="r" onPress={() => void refresh($, true)} />
           <Button
             key="wrap"
-            label={wrapped ? 'One line' : 'Wrap'}
+            plain
+            label={`Text ${wrapped ? 'wrapped' : 'one line'}`}
             hotkey="w"
             onPress={() => void update($, isWrapped, v => !v)}
           />
-          <Text> </Text>
           <Button
             key="done"
-            label={withDone ? 'Done: fold' : 'Done: show'}
+            plain
+            label={`Done ${filter !== 'all' ? 'n/a' : withDone ? 'shown' : 'hidden'}`}
             hotkey="d"
             onPress={() => void update($, showDone, v => !v)}
           />
-          <Text> </Text>
           <Button
             key="filter"
-            label={`Rows: ${filter}`}
+            plain
+            label={`Rows ${filter}`}
             hotkey="f"
             onPress={() => void update($, rowFilter, v => FILTERS[(FILTERS.indexOf(v) + 1) % FILTERS.length] ?? 'all')}
           />
-          <Text> </Text>
-          <Button key="style" label={style === 'modern' ? 'Style: ASCII' : 'Style: icons'} hotkey="i" onPress={() => void setStyle()} />
-          <Text> </Text>
-          <Button key="close" label="Close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })} />
-          {!hasPin && <Text> </Text>}
           {!hasPin && (
             <Button
               key="overview"
-              label={isOverview ? 'All: full' : 'All: titles'}
+              plain
+              label={`Trackers ${isOverview ? 'titles' : 'full'}`}
               hotkey="o"
               onPress={() => {
                 void update($, overview, v => !v)
@@ -862,11 +900,11 @@ export const register: Register = on => {
               }}
             />
           )}
-          {hasPin && <Text> </Text>}
           {hasPin && (
             <Button
               key="only"
-              label={only ? 'Others: full' : 'Others: titles'}
+              plain
+              label={`Others ${only ? 'titles' : 'full'}`}
               hotkey="p"
               onPress={() => {
                 void update($, onlyPinned, v => !v)
@@ -874,10 +912,17 @@ export const register: Register = on => {
               }}
             />
           )}
+          <Button key="style" plain label={`Style ${style === 'modern' ? 'icons' : 'ascii'}`} hotkey="i" onPress={() => void setStyle()} />
+          <Button key="close" plain label="Close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })} />
         </Box>
+        {filter !== 'all' && (
+          <Text color="warning" wrap="truncate-end">
+            {`Rows ${filter}: only ${filter === 'you' ? 'rows waiting on you' : 'running, failed, blocked and unknown rows'} are listed; f moves on to every row`}
+          </Text>
+        )}
         {hasPin && (
           <Text color="warning" wrap="truncate-end">
-            {`${g.pinOn}${s.trackers.find(t => t.path === pin)?.name ?? ''} - this session's status line follows it; press its marker or /checkpoints off to unpin`}
+            {`${g.pinOn}${s.trackers.find(t => t.path === pin)?.name ?? ''} - the status line follows it; its marker or /checkpoints off unpins`}
           </Text>
         )}
         {s.error !== '' && <Text color="error" wrap="truncate-end">{s.error}</Text>}
@@ -892,71 +937,39 @@ export const register: Register = on => {
               </Text>
             </Button>
             {!isFolded('you') && youNow.map(w => (
-              wrapped ? (
-                <Box flexDirection="row">
-                  <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
-                    <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
-                    <Text color="permission">{w.row.id.padEnd(4)}</Text>
-                  </Button>
-                  <Text wrap="wrap">
-                    {ageCell(w.row.sinceMs)}
-                    {w.row.title}
-                  </Text>
-                </Box>
-              ) : (
-              <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
-                <Text wrap="truncate-end">
+              <Box flexDirection="row">
+                <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
                   <Text dimColor>{`${w.t.name.padEnd(nameWidth)} `}</Text>
                   <Text color="permission">{w.row.id.padEnd(4)}</Text>
+                </Button>
+                <Text wrap={wrap}>
                   {ageCell(w.row.sinceMs)}
                   {w.row.title}
                 </Text>
-              </Button>
-              )
+              </Box>
             ))}
             {!isFolded('you') && youLater.length > 0 && (
               <Text dimColor>{`${g.later}later (${youLater.length}) - a prerequisite is still open`}</Text>
             )}
             {!isFolded('you') && youLater.map(w => (
-              wrapped ? (
-                <Box flexDirection="row">
-                  <Button key={`y:${rowKey(w.t, w.row)}`} plain dimColor onPress={() => void goTo(w.t, w.row)}>
-                    {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}`}
-                  </Button>
-                  <Text dimColor wrap="wrap">{`${w.row.title} (after ${w.after.join(' ')})`}</Text>
-                </Box>
-              ) : (
-              <Button key={`y:${rowKey(w.t, w.row)}`} plain onPress={() => void goTo(w.t, w.row)}>
-                <Text dimColor wrap="truncate-end">
-                  {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}${w.row.title} (after ${w.after.join(' ')})`}
-                </Text>
-              </Button>
-              )
+              <Box flexDirection="row">
+                <Button key={`y:${rowKey(w.t, w.row)}`} plain dimColor onPress={() => void goTo(w.t, w.row)}>
+                  {`${w.t.name.padEnd(nameWidth)} ${w.row.id.padEnd(4)}`}
+                </Button>
+                <Text dimColor wrap={wrap}>{`${w.row.title} (after ${w.after.join(' ')})`}</Text>
+              </Box>
             ))}
           </Box>
         )}
         {ordered.map(t => isBrief(t) ? (
           <Box key={`b:${t.path}`} flexDirection="column">
           {rule}
-          <Box flexDirection="row">
-            {pinButton(t)}
-            <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-              <Text bold color={t.isClosed ? 'inactive' : 'suggestion'}>{`${g.folded}${t.name}${t.isClosed ? ' (closed)' : ''}`}</Text>
-              {!t.isClosed && progress(t)}
-              <Text dimColor>{summaryTail(t, style) !== '' ? `${g.sep}${summaryTail(t, style)}` : ''}</Text>
-            </Button>
-          </Box>
+          {titleLine(t, true)}
           </Box>
         ) : (
           <Box key={`f:${t.path}`} flexDirection="column">
             {rule}
-            <Box flexDirection="row">
-              {pinButton(t)}
-              <Button key={`t:${t.path}`} plain onPress={() => flip(t.path)}>
-                <Text bold color="suggestion">{`${g.open}${t.name.toUpperCase()}${t.isClosed ? ' (closed)' : ''}`}</Text>
-                {progress(t)}
-              </Button>
-            </Box>
+            {titleLine(t, false)}
             <Text dimColor wrap="truncate-end">
               {t.path}
               {t.liveAt !== '' ? ` - script ${t.liveAt}` : ''}
@@ -965,11 +978,11 @@ export const register: Register = on => {
             {
               [...new Set(t.rows.map(r => groupOf(r.id)))]
                 .filter(k => filter === 'all' || t.rows.some(r => groupOf(r.id) === k && passes(filter, r.state)))
-                .map(k => (
-                <Box flexDirection="column" marginTop={1}>
+                .map((k, i, keys) => (
+                <Box flexDirection="column" marginTop={i > 0 && isCompact(t, k) && isCompact(t, keys[i - 1] ?? '') ? 0 : 1}>
                   <Button key={`h:${t.path}#${k}`} plain onPress={() => fold(`${t.path}#${k}`)}>
-                    <Text bold>
-                      {`${sectionMark(`${t.path}#${k}`)}${t.groups.find(x => x.key === k)?.title ?? k}`}
+                    <Text bold={!isCompact(t, k)}>
+                      {`${isCompact(t, k) ? g.folded : sectionMark(`${t.path}#${k}`)}${t.groups.find(x => x.key === k)?.title ?? k}`}
                       {trackStats(t).filter(p => p.key === k).map(p => (
                         <Text color={statColor(p)}>{`  ${p.done}/${p.total} ${bar(p, style)}`}</Text>
                       ))}
@@ -986,39 +999,24 @@ export const register: Register = on => {
                       // is a line of its own under the row, not a part of it.
                       return (
                         <Box flexDirection="column">
-                        {/* A Button's label stays on one line, so a row that wraps (the Wrap
-                            switch, or a row opened with Enter) keeps only its state and ID in
-                            the Button and draws the text beside it, where it can wrap. */}
-                        {isOpen || wrapped ? (
-                          <Box flexDirection="row">
-                            <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
-                              <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
-                              {r.id.padEnd(4)}
-                            </Button>
-                            <Text wrap="wrap">
-                              {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
-                                <Text color={isStale(r.sinceMs, clock) ? 'warning' : 'inactive'}>{`[${age(r.sinceMs, clock)}] `}</Text>
-                              )}
-                              {r.title}
-                              {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
-                              <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
-                            </Text>
-                          </Box>
-                        ) : (
-                        <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
-                        <Text wrap="truncate-end">
-                          <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
-                          {r.id.padEnd(4)}
-                          {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
-                          {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
-                            <Text color={isStale(r.sinceMs, clock) ? 'warning' : 'inactive'}>{`[${age(r.sinceMs, clock)}] `}</Text>
-                          )}
-                          {r.title}
-                          {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
-                          <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
-                        </Text>
-                        </Button>
-                        )}
+                        {/* The Button holds only the state and the ID; the text is a Text
+                            beside it. A Button's label always wraps and ignores truncation,
+                            so only a Text of its own can be cut to one line or wrapped. */}
+                        <Box flexDirection="row">
+                          <Button key={`r:${rowKey(t, r)}`} plain onPress={() => expand(rowKey(t, r))}>
+                            <Text color={after.length > 0 ? 'inactive' : color(r.state)}>{stateCell(r.state, style)}</Text>
+                            {r.id.padEnd(4)}
+                          </Button>
+                          <Text wrap={isOpen ? 'wrap' : wrap}>
+                            {/* Age first: a long title is cut at the pane's edge, the age must not be. */}
+                            {['OPERATOR', 'BLOCKED', 'FAILED', 'FAIL'].includes(r.state) && age(r.sinceMs, clock) !== '' && (
+                              <Text color={isStale(r.sinceMs, clock) ? 'warning' : 'inactive'}>{`[${age(r.sinceMs, clock)}] `}</Text>
+                            )}
+                            {r.title}
+                            {after.length > 0 && <Text dimColor>{` (after ${after.join(' ')})`}</Text>}
+                            <Text dimColor>{r.note ? ` - ${r.note}` : ''}</Text>
+                          </Text>
+                        </Box>
                         {isOpen && r.line > 0 && (
                           <Text dimColor wrap="truncate-end">
                             {'      '}
@@ -1028,7 +1026,7 @@ export const register: Register = on => {
                         </Box>
                       )
                     })}
-                  {!withDone && filter === 'all' && !isFolded(`${t.path}#${k}`) && (() => {
+                  {!withDone && filter === 'all' && !isFolded(`${t.path}#${k}`) && !isCompact(t, k) && (() => {
                     // Folded DONE/OK rows of a track, also of one that is complete: count and
                     // IDs, so a hidden row is always named and "Done: show" has a visible effect.
                     const rows = t.rows.filter(r => groupOf(r.id) === k)
@@ -1042,6 +1040,20 @@ export const register: Register = on => {
                   })()}
                 </Box>
               ))}
+            {filter !== 'all' && (() => {
+              // A row filter hides rows, never silently a track: the tracks it leaves empty
+              // are named in one line with their figures.
+              const empty = trackStats(t).filter(p => !t.rows.some(r => groupOf(r.id) === p.key && passes(filter, r.state)))
+              if (empty.length === 0) return null
+              return (
+                <Box marginTop={1}>
+                  <Text dimColor wrap={wrap}>
+                    {`Rows ${filter} leaves out:`}
+                    {empty.map(p => <Text color={statColor(p)}>{` ${p.key} ${p.done}/${p.total}`}</Text>)}
+                  </Text>
+                </Box>
+              )
+            })()}
             {(t.log ?? []).length > 0 && (
               <Box flexDirection="column" marginTop={1}>
                 <Button key={`h:${t.path}#recent`} plain onPress={() => fold(`${t.path}#recent`)}>

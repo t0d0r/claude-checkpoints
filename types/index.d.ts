@@ -68,7 +68,8 @@ declare module 'claude-code' {
       toggled: string[]
       // Without a pin: one title line per tracker (true) or every tracker in full (false).
       overview: boolean
-      // Section keys folded against their default: 'you', '<path>#<track>', '<path>#recent'.
+      // Folded sections: '<path>#<track>', '<path>#recent'; the waiting block's chosen state
+      // as 'you:folded' or 'you:open'.
       folded: string[]
       // Rows opened one by one: '<path>#<row id>'.
       expanded: string[]
@@ -76,7 +77,7 @@ declare module 'claude-code' {
       filter: RowFilter
       // Icons and block bars ('modern', the default) or plain ASCII ('ascii').
       style: Style
-      // DONE/OK rows listed in full (true) or folded into one line per track (false).
+      // DONE/OK rows listed in full (true, the default) or folded into one line per track (false).
       showDone: boolean
     }
   }

@@ -86,10 +86,30 @@ for (const style of ['modern', 'ascii'] as const) {
       snapshot: { shape: 'snapshot-7', value: { ...SNAPSHOT_VALUE, trackers: [TRACKER, closed] } },
       style,
       pinned: TRACKER.path,
+      toggled: [TRACKER.path],
     })
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     expect((await ui.find({ type: 'Button', key: `t:${closed.path}` }))).toBeDefined()
     expect((await ui.find({ type: 'Button', key: `r:${TRACKER.path}#B1` }))).toBeDefined()
+    await ui.unmount()
+  })
+
+  // The starting view: every tracker a title line, the pinned one too; done rows are listed
+  // once a tracker is opened.
+  test(`the pane starts as an overview, the pinned tracker a title line as well (${style})`, async ($, on) => {
+    seed(on, { snapshot: SNAPSHOT, style, pinned: TRACKER.path })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await ui.find({ type: 'Button', key: `t:${TRACKER.path}` }))).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: `r:${TRACKER.path}#B1` }))).toBeUndefined()
+    // The waiting block is folded while every tracker is a title line.
+    expect((await ui.find({ type: 'Button', key: `y:${TRACKER.path}#A2` }))).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`done rows are listed by default in an opened tracker (${style})`, async ($, on) => {
+    seed(on, { snapshot: SNAPSHOT, style, toggled: [TRACKER.path] })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await ui.find({ type: 'Button', key: `r:${TRACKER.path}#A1` }))).toBeDefined()
     await ui.unmount()
   })
   // The waiting block keeps the state its heading was pressed into, whatever the trackers do:
@@ -114,7 +134,7 @@ for (const style of ['modern', 'ascii'] as const) {
   // Done rows are hidden by default and named in one line, also in a track that is complete.
   for (const showDone of [false, true]) {
     test(`done rows ${showDone ? 'show on request' : 'fold into a summary line'} (${style})`, async ($, on) => {
-      const done = { ...TRACKER, rows: [row('A1', 'DONE'), row('A2', 'DONE'), row('B1', 'BLOCKED')] }
+      const done = { ...TRACKER, rows: [row('A1', 'DONE'), row('A2', 'DONE'), row('A3', 'PENDING'), row('B1', 'BLOCKED')] }
       const snap = { shape: 'snapshot-7', value: { ...SNAPSHOT_VALUE, trackers: [done] } }
       seed(on, { snapshot: snap, style, toggled: [TRACKER.path], showDone })
       const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -130,4 +150,13 @@ for (const style of ['modern', 'ascii'] as const) {
       await ui.unmount()
     })
   }
+  // A row filter hides rows, never silently a track: the tracks it empties are named in a line.
+  test(`a track without matching rows is named under a filter (${style})`, async ($, on) => {
+    const t = { ...TRACKER, groups: [...TRACKER.groups, { key: 'C', title: 'C - Third' }], rows: [...TRACKER.rows, row('C1', 'DONE')] }
+    seed(on, { snapshot: { shape: 'snapshot-7', value: { ...SNAPSHOT_VALUE, trackers: [t] } }, style, toggled: [TRACKER.path], filter: 'you' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect((await ui.find({ type: 'Text', text: /Rows you leaves out: C 1\/1/ }))).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: `r:${TRACKER.path}#C1` }))).toBeUndefined()
+    await ui.unmount()
+  })
 }

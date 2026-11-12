@@ -52,28 +52,35 @@ code runs in every project.
 - Two styles. `modern` (the default): an icon per state (check mark = done, triangle =
   running, circle = pending, filled diamond = waiting on you, filled square = blocked, cross =
   failed), block-character bars, box-drawing separators, star pin markers, fold triangles.
-  `ascii`: state words, `[###...]` bars, `|`, `pin`/`*`, `[+]`/`[-]`. The `Style: ASCII` /
-  `Style: icons` button, `i`, or `/checkpoints ascii` / `/checkpoints icons` switches; the
+  `ascii`: state words, `[###...]` bars, `|`, `pin`/`*`, `[+]`/`[-]`. The `i: Style icons` /
+  `i: Style ascii` switch, or `/checkpoints ascii` / `/checkpoints icons`, changes it; the
   choice is stored for the user and applies to new sessions and to the status line. The icons
   are single-width characters of common Unicode blocks - no emoji and no patched font needed.
 - Every section folds: a click (or Enter) on a tracker title, on the "Waiting on you"
   heading, on a track heading or on "recent" folds or opens it, for this session.
 - Rows open one by one: a click (or Enter) on a row shows its whole title and note, wrapped,
   and a link `<tracker file>:<line>` to where it stands in the file (a `file://` link: what
-  opens it is the terminal's choice, and it carries no line number). `Wrap` / `w` opens or
-  shortens every row at once; rows are one line each by default.
-- Row filter: the `Rows: all` / `Rows: you` / `Rows: hot` button or `f` cycles between every
-  row, only those waiting on you, and only blocked, failed, running or unknown ones. A track
-  with no matching row is left out.
+  opens it is the terminal's choice, and it carries no line number). `w: Text one line` /
+  `w: Text wrapped` cuts every row, title line and summary to one line or wraps them under
+  themselves; one line is the default.
+- Row filter: `f: Rows all` / `Rows you` / `Rows hot` cycles between every row, only those
+  waiting on you, and only blocked, failed, running or unknown ones. While a filter is on, a
+  yellow line under the switches says so, and each tracker names the tracks the filter
+  leaves empty in one line (`Rows you leaves out: A 3/3 C 1/4`) - a track is never dropped
+  without a word.
 - Go to a waiting row: a click (or Enter) on a row of the "Waiting on you" block opens its
   tracker and track, opens the row and moves the pane and the focus to it. The block starts
-  folded while every tracker is a title line; its heading carries the counts.
+  folded while every tracker is a title line; its heading carries the counts. Once its
+  heading was pressed it keeps that state, whatever is folded or opened below it.
 - Tracker titles stand out: bold and coloured, an opened tracker in capitals; a rule as wide
   as the pane stands above every title, folded or open.
 - Overview first: without a pin the pane opens as one title line per tracker
   (`pin docker-inventory 27/40 [#######...] A 5/5 B 19/24 C 0/4 D 3/7 | ...`), to pick the one
   to work on. A click on a title (or Enter on it) opens that tracker, a click on `pin` pins
-  it; `All: full` / `All: titles` button or `o` switches every tracker at once.
+  it; `o: Trackers titles` / `Trackers full` switches every tracker at once. On a title line
+  what is hot or waits on you comes right after the count and the bar, before the per-track
+  figures, so a line cut to the pane's width keeps it; more than four hot rows are counted
+  per state instead of listed.
 - "Waiting on you" block on top: every OPERATOR row of every open tracker in one list. Rows
   that can be decided now come first; a row whose "depends on" cell names a checkpoint that is
   not DONE/OK yet is listed under "later" with `(after <ids>)` and is dimmed in its track too.
@@ -85,16 +92,18 @@ code runs in every project.
   changes gives honest figures.
 - Each track heading carries its own count and bar; under a tracker, "recent" lists the three
   newest progress-log rows; the pane's last line names the finished trackers it leaves out.
-- DONE/OK rows are folded: a track shows its open rows plus one `+ N done: <ids>` line (a
-  fully done track shows only its heading). `Done: show` / `Done: fold` button or `d` toggles.
-- Refresh button / `r`; `w` toggles wrapped notes and one line per row; `q` closes. Hotkeys
-  work while the pane holds the focus.
+- DONE/OK rows are listed by default. `d: Done shown` / `Done hidden` switches: hidden, a
+  track shows its open rows plus one `+ N done: <ids>` line and a complete track is a single
+  heading line. Under a row filter it reads `Done n/a`, since a filter never lists done rows.
+- The switches stand in one row that wraps in a narrow pane, each as `key: name value` with
+  the value in force now (`r: Refresh  w: Text one line  d: Done hidden  f: Rows all ...`); a
+  press, or the key while the pane holds the focus, moves to the next value. `q` closes.
 - The pin is spelled out: the pinned tracker's marker reads `PINNED` in bold yellow (a star
   in `modern`, `[*]` in `ascii`), the others read `pin`, and a line under the buttons names
   the pinned tracker and how to unpin.
-- With a pin: the pinned tracker in full, the others as one title line each; the
-  `Others: full` / `Others: titles` button or `p` toggles, a click on a title opens or folds
-  that tracker.
+- With a pin the pane still opens as an overview: every tracker one title line, the pinned
+  one first and marked. `p: Others titles` / `Others full` switches the other trackers; a
+  click on a title opens or folds that tracker, the pinned one included.
 - Refresh: at session start, every 15 minutes, on `/checkpoints` and on Refresh.
 - Finished trackers go away on their own: a tracker that is closed, or whose counted rows are
   all DONE/OK with no script error, stays for two days after its last change (the newest
